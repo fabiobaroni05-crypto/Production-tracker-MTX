@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
@@ -194,6 +195,37 @@ function SectionFileUpload({ projectId, productionId, onUploaded }) {
   )
 }
 
+const emptyProjectForm = {
+  name: '',
+  client: '',
+  mode: 'station',
+  total_feet: '',
+  start_station: '00+00',
+  end_station: '00+00',
+  status: 'Active',
+  comment: '',
+}
+
+const emptyProductionForm = {
+  crew: '',
+  date: '',
+  start_value: '',
+  end_value: '',
+  footage: '',
+  reference: '',
+  comments: '',
+}
+
+const emptyTicketForm = {
+  ticket_number: '',
+  area: '',
+  status: 'Open',
+  pending_utility: '',
+  expiration_date: '',
+  coverage: '',
+  notes: '',
+}
+
 export default function App() {
   const [projects, setProjects] = useState([])
   const [production, setProduction] = useState([])
@@ -202,37 +234,11 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [loading, setLoading] = useState(true)
   const [selectedCrew, setSelectedCrew] = useState('All')
+  const [selectedProductionId, setSelectedProductionId] = useState('')
 
-  const [projectForm, setProjectForm] = useState({
-    name: '',
-    client: '',
-    mode: 'station',
-    total_feet: '',
-    start_station: '00+00',
-    end_station: '00+00',
-    status: 'Active',
-    comment: '',
-  })
-
-  const [productionForm, setProductionForm] = useState({
-    crew: '',
-    date: '',
-    start_value: '',
-    end_value: '',
-    footage: '',
-    reference: '',
-    comments: '',
-  })
-
-  const [ticketForm, setTicketForm] = useState({
-    ticket_number: '',
-    area: '',
-    status: 'Open',
-    pending_utility: '',
-    expiration_date: '',
-    coverage: '',
-    notes: '',
-  })
+  const [projectForm, setProjectForm] = useState(emptyProjectForm)
+  const [productionForm, setProductionForm] = useState(emptyProductionForm)
+  const [ticketForm, setTicketForm] = useState(emptyTicketForm)
 
   const loadAll = async () => {
     setLoading(true)
@@ -312,6 +318,46 @@ export default function App() {
     return summary
   }, [projectProduction])
 
+  const selectedProduction = useMemo(
+    () => projectProduction.find((row) => row.id === selectedProductionId) || null,
+    [projectProduction, selectedProductionId]
+  )
+
+  const isEditingProject = Boolean(selectedProject)
+
+  useEffect(() => {
+    if (selectedProject) {
+      setProjectForm({
+        name: selectedProject.name || '',
+        client: selectedProject.client || '',
+        mode: selectedProject.mode || 'station',
+        total_feet: String(selectedProject.total_feet || ''),
+        start_station: selectedProject.start_station || '00+00',
+        end_station: selectedProject.end_station || '00+00',
+        status: selectedProject.status || 'Active',
+        comment: selectedProject.comment || '',
+      })
+    } else {
+      setProjectForm(emptyProjectForm)
+    }
+  }, [selectedProjectId, selectedProject])
+
+  useEffect(() => {
+    if (!selectedProduction && projectProduction.length) {
+      setSelectedProductionId(projectProduction[0].id)
+    }
+    if (!projectProduction.length) {
+      setSelectedProductionId('')
+    }
+  }, [projectProduction, selectedProduction])
+
+  const clearProjectForm = () => {
+    setSelectedProjectId('')
+    setSelectedProductionId('')
+    setSelectedCrew('All')
+    setProjectForm(emptyProjectForm)
+  }
+
   const createProject = async () => {
     try {
       const payload = {
@@ -321,21 +367,73 @@ export default function App() {
       const { data, error } = await supabase.from('projects').insert(payload).select().single()
       if (error) throw error
 
-      setProjectForm({
-        name: '',
-        client: '',
-        mode: 'station',
-        total_feet: '',
-        start_station: '00+00',
-        end_station: '00+00',
-        status: 'Active',
-        comment: '',
-      })
-
+      setProjectForm(emptyProjectForm)
       await loadAll()
       setSelectedProjectId(data.id)
     } catch (error) {
       alert(error.message || 'Could not create project.')
+    }
+  }
+
+  const updateProject = async () => {
+    if (!selectedProjectId) return alert('Select a project first.')
+    try {
+      const payload = {
+        ...projectForm,
+        total_feet: Number(projectForm.total_feet || 0),
+      }
+      const { error } = await supabase.from('projects').update(payload).eq('id', selectedProjectId)
+      if (error) throw error
+      await loadAll()
+    } catch (error) {
+      alert(error.message || 'Could not update project.')
+    }
+  }
+
+  const deleteProject = async () => {
+    if (!selectedProjectId) return alert('Select a project first.')
+    const ok = window.confirm('Delete this project and all related production, tickets, and file records?')
+    if (!ok) return
+
+    try {
+      const fileRows = files.filter((file) => file.project_id === selectedProjectId)
+      if (fileRows.length) {
+        const storagePaths = fileRows
+          .map((file) => {
+            try {
+              const url = new URL(file.file_url)
+              const marker = '/object/public/bore-logs/'
+              const index = url.pathname.indexOf(marker)
+              return index >= 0 ? decodeURIComponent(url.pathname.slice(index + marker.length)) : null
+            } catch {
+              return null
+            }
+          })
+          .filter(Boolean)
+
+        if (storagePaths.length) {
+          await supabase.storage.from('bore-logs').remove(storagePaths)
+        }
+      }
+
+      const { error: filesError } = await supabase.from('files').delete().eq('project_id', selectedProjectId)
+      if (filesError) throw filesError
+
+      const { error: ticketsError } = await supabase.from('tickets').delete().eq('project_id', selectedProjectId)
+      if (ticketsError) throw ticketsError
+
+      const { error: productionError } = await supabase.from('production_records').delete().eq('project_id', selectedProjectId)
+      if (productionError) throw productionError
+
+      const { error: projectError } = await supabase.from('projects').delete().eq('id', selectedProjectId)
+      if (projectError) throw projectError
+
+      setSelectedProjectId('')
+      setSelectedProductionId('')
+      setProjectForm(emptyProjectForm)
+      await loadAll()
+    } catch (error) {
+      alert(error.message || 'Could not delete project.')
     }
   }
 
@@ -364,20 +462,12 @@ export default function App() {
         comments: productionForm.comments,
       }
 
-      const { error } = await supabase.from('production_records').insert(payload)
+      const { data, error } = await supabase.from('production_records').insert(payload).select().single()
       if (error) throw error
 
-      setProductionForm({
-        crew: '',
-        date: '',
-        start_value: '',
-        end_value: '',
-        footage: '',
-        reference: '',
-        comments: '',
-      })
-
+      setProductionForm(emptyProductionForm)
       await loadAll()
+      if (data?.id) setSelectedProductionId(data.id)
     } catch (error) {
       alert(error.message || 'Could not save production record.')
     }
@@ -390,16 +480,7 @@ export default function App() {
       const { error } = await supabase.from('tickets').insert(payload)
       if (error) throw error
 
-      setTicketForm({
-        ticket_number: '',
-        area: '',
-        status: 'Open',
-        pending_utility: '',
-        expiration_date: '',
-        coverage: '',
-        notes: '',
-      })
-
+      setTicketForm(emptyTicketForm)
       await loadAll()
     } catch (error) {
       alert(error.message || 'Could not save ticket.')
@@ -482,7 +563,21 @@ export default function App() {
               <textarea style={{ ...inputStyle, minHeight: 90 }} value={projectForm.comment} onChange={(e) => setProjectForm((s) => ({ ...s, comment: e.target.value }))} />
             </div>
 
-            <button style={primaryBtn} onClick={createProject}>Create project</button>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <button style={primaryBtn} onClick={isEditingProject ? updateProject : createProject}>
+                {isEditingProject ? 'Update project' : 'Create project'}
+              </button>
+
+              <button style={secondaryBtn} onClick={clearProjectForm}>
+                Clear form
+              </button>
+
+              {isEditingProject && (
+                <button style={dangerBtn} onClick={deleteProject}>
+                  Delete project
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px solid #e2e8f0' }}>
@@ -547,111 +642,165 @@ export default function App() {
                   <strong>Status note:</strong> {selectedProject.comment || 'No project comment added.'}
                 </div>
 
-                <div style={{ marginTop: 20 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 8 }}>
-                    <span>{selectedProject.mode === 'footage' ? '0 ft' : selectedProject.start_station}</span>
-                    <span>{selectedProject.mode === 'footage' ? formatFeet(selectedProject.total_feet) : selectedProject.end_station}</span>
-                  </div>
+                <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: '1.7fr 0.9fr', gap: 20 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#64748b', marginBottom: 8 }}>
+                      <span>{selectedProject.mode === 'footage' ? '0 ft' : selectedProject.start_station}</span>
+                      <span>{selectedProject.mode === 'footage' ? formatFeet(selectedProject.total_feet) : selectedProject.end_station}</span>
+                    </div>
 
-                  <div
-                    style={{
-                      position: 'relative',
-                      height: 38,
-                      background: '#cbd5e1',
-                      borderRadius: 999,
-                      overflow: 'hidden',
-                      border: '1px solid #cbd5e1',
-                    }}
-                  >
-                    {selectedProject && bounds.length > 0 && projectProduction.map((row) => {
-                      let start = 0
-                      let end = 0
+                    <div
+                      style={{
+                        position: 'relative',
+                        height: 38,
+                        background: '#cbd5e1',
+                        borderRadius: 999,
+                        overflow: 'hidden',
+                        border: '1px solid #cbd5e1',
+                      }}
+                    >
+                      {selectedProject && bounds.length > 0 && projectProduction.map((row) => {
+                        let start = 0
+                        let end = 0
 
-                      if (selectedProject.mode === 'footage') {
-                        start = Number(row.start_num || 0)
-                        end = start + Number(row.footage || 0)
-                      } else {
-                        start = stationToFeet(row.start_value)
-                        end = stationToFeet(row.end_value)
-                      }
+                        if (selectedProject.mode === 'footage') {
+                          start = Number(row.start_num || 0)
+                          end = start + Number(row.footage || 0)
+                        } else {
+                          start = stationToFeet(row.start_value)
+                          end = stationToFeet(row.end_value)
+                        }
 
-                      const left = ((start - bounds.start) / bounds.length) * 100
-                      const width = ((end - start) / bounds.length) * 100
+                        const left = ((start - bounds.start) / bounds.length) * 100
+                        const width = ((end - start) / bounds.length) * 100
+                        const isSelected = row.id === selectedProductionId
 
-                      return (
+                        return (
+                          <button
+                            type="button"
+                            key={row.id}
+                            title={`${row.crew} • ${formatRangeLabel(selectedProject, row)}`}
+                            onClick={() => setSelectedProductionId(row.id)}
+                            style={{
+                              position: 'absolute',
+                              left: `${left}%`,
+                              width: `${Math.max(width, 1)}%`,
+                              top: 0,
+                              bottom: 0,
+                              background: crewColor(row.crew),
+                              border: isSelected ? '2px solid #0f172a' : 'none',
+                              borderRight: '1px solid rgba(255,255,255,0.8)',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          />
+                        )
+                      })}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+                      {crewOptions.map((crew) => (
                         <div
-                          key={row.id}
-                          title={`${row.crew} • ${formatRangeLabel(selectedProject, row)}`}
+                          key={crew}
                           style={{
-                            position: 'absolute',
-                            left: `${left}%`,
-                            width: `${Math.max(width, 1)}%`,
-                            top: 0,
-                            bottom: 0,
-                            background: crewColor(row.crew),
-                            borderRight: '1px solid rgba(255,255,255,0.8)',
-                          }}
-                        />
-                      )
-                    })}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
-                    {crewOptions.map((crew) => (
-                      <div
-                        key={crew}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          border: '1px solid #e2e8f0',
-                          borderRadius: 999,
-                          padding: '6px 10px',
-                          fontSize: 13,
-                          background: '#fff',
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 999,
-                            background: crewColor(crew),
-                            display: 'inline-block',
-                          }}
-                        />
-                        {crew}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>Open gaps</div>
-                    {gaps.length ? (
-                      gaps.map((gap, index) => (
-                        <div
-                          key={index}
-                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
                             border: '1px solid #e2e8f0',
-                            borderRadius: 14,
-                            padding: 12,
+                            borderRadius: 999,
+                            padding: '6px 10px',
+                            fontSize: 13,
                             background: '#fff',
-                            fontSize: 14,
                           }}
                         >
-                          <strong>
-                            {selectedProject.mode === 'footage'
-                              ? `${gap.start.toLocaleString()} ft to ${gap.end.toLocaleString()} ft`
-                              : `${formatStation(gap.start)} to ${formatStation(gap.end)}`}
-                          </strong>
-                          <div style={{ color: '#64748b', marginTop: 4 }}>
-                            {(gap.end - gap.start).toLocaleString()} ft unfinished
+                          <span
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: 999,
+                              background: crewColor(crew),
+                              display: 'inline-block',
+                            }}
+                          />
+                          {crew}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>Open gaps</div>
+                      {gaps.length ? (
+                        gaps.map((gap, index) => (
+                          <div
+                            key={index}
+                            style={{
+                              border: '1px solid #e2e8f0',
+                              borderRadius: 14,
+                              padding: 12,
+                              background: '#fff',
+                              fontSize: 14,
+                            }}
+                          >
+                            <strong>
+                              {selectedProject.mode === 'footage'
+                                ? `${gap.start.toLocaleString()} ft to ${gap.end.toLocaleString()} ft`
+                                : `${formatStation(gap.start)} to ${formatStation(gap.end)}`}
+                            </strong>
+                            <div style={{ color: '#64748b', marginTop: 4 }}>
+                              {(gap.end - gap.start).toLocaleString()} ft unfinished
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ color: '#64748b', fontSize: 14 }}>No gaps found. Entire line is finished.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 14 }}>
+                    <div style={sideCardStyle}>
+                      <div style={sideTitleStyle}>Crew Production Summary</div>
+                      {Object.keys(crewSummary).length ? (
+                        Object.entries(crewSummary).map(([crew, total]) => (
+                          <div key={crew} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, paddingTop: 8 }}>
+                            <span>{crew}</span>
+                            <strong>{Number(total).toLocaleString()} ft</strong>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ color: '#64748b' }}>No production yet.</div>
+                      )}
+                    </div>
+
+                    <div style={sideCardStyle}>
+                      <div style={sideTitleStyle}>Selected production</div>
+                      {selectedProduction ? (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <div><strong>Crew:</strong> {selectedProduction.crew}</div>
+                          <div><strong>Date:</strong> {selectedProduction.date || 'No date'}</div>
+                          <div><strong>Feet:</strong> {formatFeet(selectedProduction.footage)}</div>
+                          <div><strong>Range:</strong> {formatRangeLabel(selectedProject, selectedProduction)}</div>
+                          <div><strong>Reference:</strong> {selectedProduction.reference || 'No reference added.'}</div>
+                          <div><strong>Comments:</strong> {selectedProduction.comments || 'No comments added.'}</div>
+                          <div>
+                            <strong>Attachments:</strong>
+                            <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
+                              {(fileMap[selectedProduction.id] || []).length ? (
+                                fileMap[selectedProduction.id].map((file) => (
+                                  <a key={file.id} href={file.file_url} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>
+                                    {file.file_name}
+                                  </a>
+                                ))
+                              ) : (
+                                <span style={{ color: '#64748b' }}>No files attached.</span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      ))
-                    ) : (
-                      <div style={{ color: '#64748b', fontSize: 14 }}>No gaps found. Entire line is finished.</div>
-                    )}
+                      ) : (
+                        <div style={{ color: '#64748b' }}>Click a production segment to see details.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
@@ -682,19 +831,6 @@ export default function App() {
                   <option key={crew} value={crew}>{crew}</option>
                 ))}
               </select>
-            </div>
-
-            <div style={{ marginBottom: 20, display: 'grid', gap: 8 }}>
-              <strong>Crew Production Summary</strong>
-              {Object.keys(crewSummary).length ? (
-                Object.entries(crewSummary).map(([crew, total]) => (
-                  <div key={crew} style={{ color: '#475569' }}>
-                    {crew}: {Number(total).toLocaleString()} ft
-                  </div>
-                ))
-              ) : (
-                <div style={{ color: '#64748b' }}>No production yet.</div>
-              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
@@ -884,6 +1020,26 @@ const primaryBtn = {
   cursor: 'pointer',
 }
 
+const secondaryBtn = {
+  background: '#e2e8f0',
+  color: '#0f172a',
+  border: 'none',
+  borderRadius: 14,
+  padding: '12px 16px',
+  fontWeight: 700,
+  cursor: 'pointer',
+}
+
+const dangerBtn = {
+  background: '#dc2626',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 14,
+  padding: '12px 16px',
+  fontWeight: 700,
+  cursor: 'pointer',
+}
+
 const badgeStyle = {
   display: 'inline-block',
   padding: '6px 10px',
@@ -935,4 +1091,17 @@ const tableRow = {
   padding: 14,
   borderTop: '1px solid #e2e8f0',
   alignItems: 'start',
+}
+
+const sideCardStyle = {
+  border: '1px solid #e2e8f0',
+  borderRadius: 18,
+  padding: 16,
+  background: '#fff',
+}
+
+const sideTitleStyle = {
+  fontSize: 16,
+  fontWeight: 700,
+  marginBottom: 8,
 }
