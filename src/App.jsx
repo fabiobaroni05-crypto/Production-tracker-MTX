@@ -307,10 +307,11 @@ export default function App() {
             <div style={{ ...actionRow, marginTop: 18 }}>
               <button style={primaryBtn} onClick={newProject}>New Project</button>
               <button style={lightBtn}>Duplicate Current</button>
-              <button style={lightBtn}>Export Project</button>
+              {/*<button style={lightBtn}>Export Project</button> 
               <button style={lightBtn}>Import Project</button>
               <button style={lightBtn}>Export All Projects</button>
-              <button style={lightBtn}>Import All Projects</button>
+              <button style={lightBtn}>Import All Projects</button> 
+              */}
               <button style={dangerBtn} onClick={deleteProject}>Delete Project</button>
             </div>
 
