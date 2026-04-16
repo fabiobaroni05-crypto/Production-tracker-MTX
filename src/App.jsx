@@ -795,7 +795,7 @@ export default function App() {
                 <div>Date</div>
                 <div>Status</div>
                 <div>Feet</div>
-                <div>Reference</div>
+
                 <div>Attachments</div>
                 <div>Actions</div>
               </div>
@@ -826,7 +826,7 @@ export default function App() {
                   <div>{record.date}</div>
                   <div><span style={statusChip}>Finished</span></div>
                   <div>{record.footage}</div>
-                  <div>{record.reference || "—"}</div>
+                  
                   <div>
                     {record.attachments?.length ? (
                       <div style={{ display: "grid", gap: 6 }}>
@@ -1432,7 +1432,7 @@ const tableCard = {
 
 const tableHeaderOld = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.2fr 1fr 0.8fr 0.6fr 0.8fr 1.2fr 1fr",
+  gridTemplateColumns: "1fr 1.3fr 1fr 0.8fr 0.7fr 1.3fr 1fr",
   gap: 12,
   padding: 14,
   background: "#f8fafc",
@@ -1442,7 +1442,7 @@ const tableHeaderOld = {
 
 const tableRowOld = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.2fr 1fr 0.8fr 0.6fr 0.8fr 1.2fr 1fr",
+  gridTemplateColumns: "1fr 1.3fr 1fr 0.8fr 0.7fr 1.3fr 1fr",
   gap: 12,
   padding: 14,
   borderTop: "1px solid #e5e7eb",
