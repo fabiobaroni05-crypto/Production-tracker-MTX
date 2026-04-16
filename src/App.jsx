@@ -124,14 +124,29 @@ function getGaps(project, records) {
 }
 
 function getDaysLeft(expirationDate) {
-  if (!expirationDate) return "No date";
+  if (!expirationDate) return { text: "No date", color: "#64748b" };
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const exp = new Date(`${expirationDate}T00:00:00`);
   const diff = Math.round((exp - today) / 86400000);
-  if (diff < 0) return `${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"} ago`;
-  if (diff === 0) return "Expires today";
-  return `${diff} day${diff === 1 ? "" : "s"} left`;
+  if (diff < 0) return { text: `${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"} ago`, color: "#b91c1c" };
+  if (diff === 0) return { text: "Expires today", color: "#b91c1c" };
+  if (diff <= 5) return { text: `${diff} day${diff === 1 ? "" : "s"} left`, color: "#b45309" };
+  return { text: `${diff} day${diff === 1 ? "" : "s"} left`, color: "#15803d" };
+}
+
+function getTicketStatusStyle(status) {
+  switch (status) {
+    case "Clear":
+      return { background: "#dcfce7", color: "#166534" };
+    case "Pending":
+      return { background: "#ffedd5", color: "#9a3412" };
+    case "Expired":
+      return { background: "#fee2e2", color: "#991b1b" };
+    case "Open":
+    default:
+      return { background: "#dbeafe", color: "#1d4ed8" };
+  }
 }
 
 function ProductionLine({ project, records, selectedRecordId, onSelectRecord }) {
@@ -201,16 +216,84 @@ export default function App() {
   const [projectForm, setProjectForm] = useState(projects[0]);
 
   const [productionRecords, setProductionRecords] = useState([
-    { id: 101, crew: "MIGUEL", date: "2026-04-06", start: "00+00", end: "03+50", footage: 350, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 102, crew: "FRANK", date: "2026-04-05", start: "05+50", end: "08+00", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 103, crew: "NALDI", date: "2026-04-05", start: "06+00", end: "07+50", footage: 150, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 104, crew: "NALDI", date: "2026-04-08", start: "10+00", end: "12+50", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 105, crew: "YOYI", date: "2026-04-14", start: "12+50", end: "18+50", footage: 600, reference: "", comments: "No comments added.", attachments: [] },
+    {
+      id: 101,
+      crew: "MIGUEL",
+      date: "2026-04-06",
+      start: "00+00",
+      end: "03+50",
+      footage: 350,
+      reference: "",
+      comments: "No comments added.",
+      attachments: [],
+    },
+    {
+      id: 102,
+      crew: "FRANK",
+      date: "2026-04-15",
+      start: "03+50",
+      end: "06+00",
+      footage: 250,
+      reference: "",
+      comments: "No comments added.",
+      attachments: [],
+    },
+    {
+      id: 103,
+      crew: "NALDI",
+      date: "2026-04-05",
+      start: "06+00",
+      end: "07+50",
+      footage: 150,
+      reference: "",
+      comments: "No comments added.",
+      attachments: [],
+    },
+    {
+      id: 104,
+      crew: "NALDI",
+      date: "2026-04-08",
+      start: "10+00",
+      end: "12+50",
+      footage: 250,
+      reference: "",
+      comments: "No comments added.",
+      attachments: [],
+    },
+    {
+      id: 105,
+      crew: "YOYI",
+      date: "2026-04-14",
+      start: "12+50",
+      end: "18+50",
+      footage: 600,
+      reference: "",
+      comments: "No comments added.",
+      attachments: [],
+    },
   ]);
 
   const [ticketRecords, setTicketRecords] = useState([
-    { id: 201, areaSection: "", ticketNumber: "123456789", status: "Open", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
-    { id: 202, areaSection: "15+00 TO 20+00", ticketNumber: "16868915", status: "Pending", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
+    {
+      id: 201,
+      areaSection: "",
+      ticketNumber: "123456789",
+      status: "Open",
+      pendingUtility: "",
+      expirationDate: "",
+      coverage: "",
+      notes: "",
+    },
+    {
+      id: 202,
+      areaSection: "15+00 TO 20+00",
+      ticketNumber: "16868915",
+      status: "Pending",
+      pendingUtility: "",
+      expirationDate: "",
+      coverage: "",
+      notes: "",
+    },
   ]);
 
   const [ticketForm, setTicketForm] = useState(emptyTicketForm);
@@ -221,20 +304,56 @@ export default function App() {
   const [selectedRecordId, setSelectedRecordId] = useState(103);
   const [crewFilter, setCrewFilter] = useState("All crews selected");
 
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) || projects[0];
-  const selectedRecord = productionRecords.find((record) => record.id === selectedRecordId) || null;
+  const selectedProject =
+    projects.find((project) => project.id === selectedProjectId) || projects[0];
 
-  const progress = useMemo(() => getProjectProgress(selectedProject, productionRecords), [selectedProject, productionRecords]);
-  const crewSummary = useMemo(() => getCrewSummary(productionRecords), [productionRecords]);
-  const gaps = useMemo(() => getGaps(selectedProject, productionRecords), [selectedProject, productionRecords]);
+  const selectedRecord =
+    productionRecords.find((record) => record.id === selectedRecordId) || null;
+
+  const progress = useMemo(
+    () => getProjectProgress(selectedProject, productionRecords),
+    [selectedProject, productionRecords]
+  );
+
+  const crewSummary = useMemo(
+    () => getCrewSummary(productionRecords),
+    [productionRecords]
+  );
+
+  const gaps = useMemo(
+    () => getGaps(selectedProject, productionRecords),
+    [selectedProject, productionRecords]
+  );
 
   const filteredRecords = useMemo(() => {
     if (crewFilter === "All crews selected") return productionRecords;
     return productionRecords.filter((record) => record.crew === crewFilter);
   }, [productionRecords, crewFilter]);
 
+  const autoProjectTotal =
+    projectForm.trackingType === "Station based"
+      ? Math.max(stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation), 0)
+      : Number(projectForm.totalFootage || 0);
+
+  const productionPreviewFootage = getProductionFootage(
+    productionForm.start,
+    productionForm.end
+  );
+
   const saveProject = () => {
-    setProjects((prev) => prev.map((project) => (project.id === selectedProjectId ? { ...projectForm, id: selectedProjectId } : project)));
+    const payload = {
+      ...projectForm,
+      id: selectedProjectId,
+      totalFootage:
+        projectForm.trackingType === "Station based"
+          ? autoProjectTotal
+          : Number(projectForm.totalFootage || 0),
+    };
+
+    setProjectForm(payload);
+    setProjects((prev) =>
+      prev.map((project) => (project.id === selectedProjectId ? payload : project))
+    );
   };
 
   const deleteProject = () => {
@@ -246,7 +365,16 @@ export default function App() {
 
   const newProject = () => {
     const id = Date.now();
-    const project = { id, ...emptyProjectForm, name: "New Project", client: "", startStation: "00+00", endStation: "00+00", comment: "" };
+    const project = {
+      id,
+      ...emptyProjectForm,
+      name: "New Project",
+      client: "",
+      startStation: "00+00",
+      endStation: "00+00",
+      totalFootage: 0,
+      comment: "",
+    };
     setProjects((prev) => [project, ...prev]);
     setSelectedProjectId(id);
     setProjectForm(project);
@@ -261,7 +389,8 @@ export default function App() {
       return;
     }
 
-    const existingAttachments = productionRecords.find((record) => record.id === editingRecordId)?.attachments || [];
+    const existingAttachments =
+      productionRecords.find((record) => record.id === editingRecordId)?.attachments || [];
 
     const payload = {
       id: editingRecordId || Date.now(),
@@ -271,7 +400,9 @@ export default function App() {
     };
 
     if (editingRecordId) {
-      setProductionRecords((prev) => prev.map((record) => (record.id === editingRecordId ? payload : record)));
+      setProductionRecords((prev) =>
+        prev.map((record) => (record.id === editingRecordId ? payload : record))
+      );
       setSelectedRecordId(editingRecordId);
     } else {
       setProductionRecords((prev) => [...prev, payload]);
@@ -307,6 +438,24 @@ export default function App() {
     }
   };
 
+  const handleUploadFile = (recordId, files) => {
+    const safeFiles = Array.from(files || []);
+    if (!safeFiles.length) return;
+
+    const newFiles = safeFiles.map((file) => ({
+      name: file.name,
+      url: URL.createObjectURL(file),
+    }));
+
+    setProductionRecords((prev) =>
+      prev.map((record) =>
+        record.id === recordId
+          ? { ...record, attachments: [...(record.attachments || []), ...newFiles] }
+          : record
+      )
+    );
+  };
+
   const saveTicket = () => {
     if (!ticketForm.ticketNumber && !ticketForm.areaSection) {
       alert("Add at least ticket number or area / section.");
@@ -316,7 +465,9 @@ export default function App() {
     const payload = { id: editingTicketId || Date.now(), ...ticketForm };
 
     if (editingTicketId) {
-      setTicketRecords((prev) => prev.map((ticket) => (ticket.id === editingTicketId ? payload : ticket)));
+      setTicketRecords((prev) =>
+        prev.map((ticket) => (ticket.id === editingTicketId ? payload : ticket))
+      );
     } else {
       setTicketRecords((prev) => [...prev, payload]);
     }
@@ -394,7 +545,9 @@ export default function App() {
               <span style={metaPill}>Project: {selectedProject?.name || "No project"}</span>
               <span style={metaPill}>Type: {selectedProject?.trackingType}</span>
               <span style={metaPill}>Status: {selectedProject?.status}</span>
-              <span style={metaPill}>Stations: {selectedProject?.startStation} to {selectedProject?.endStation}</span>
+              <span style={metaPill}>
+                Stations: {selectedProject?.startStation} to {selectedProject?.endStation}
+              </span>
               <span style={metaPill}>{formatFeet(progress.total)}</span>
             </div>
 
@@ -433,34 +586,69 @@ export default function App() {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Project name</div>
-                <input style={inputStyle} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} />
+                <input
+                  style={inputStyle}
+                  value={projectForm.name}
+                  onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
+                />
               </div>
               <div>
                 <div style={smallLabel}>Client</div>
-                <input style={inputStyle} value={projectForm.client} onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })} />
+                <input
+                  style={inputStyle}
+                  value={projectForm.client}
+                  onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })}
+                />
               </div>
               <div>
                 <div style={smallLabel}>Tracking type</div>
-                <select style={inputStyle} value={projectForm.trackingType} onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value })}>
+                <select
+                  style={inputStyle}
+                  value={projectForm.trackingType}
+                  onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value })}
+                >
                   <option>Station based</option>
                   <option>Footage based</option>
                 </select>
               </div>
               <div>
-                <div style={smallLabel}>Total footage</div>
-                <input style={inputStyle} value={projectForm.totalFootage} onChange={(e) => setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })} />
+                <div style={smallLabel}>
+                  Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}
+                </div>
+                <input
+                  style={{
+                    ...inputStyle,
+                    background: projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff",
+                    color: projectForm.trackingType === "Station based" ? "#475569" : "#111827",
+                  }}
+                  value={projectForm.trackingType === "Station based" ? autoProjectTotal : projectForm.totalFootage}
+                  readOnly={projectForm.trackingType === "Station based"}
+                  onChange={(e) => setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })}
+                />
               </div>
               <div>
                 <div style={smallLabel}>Project start station</div>
-                <input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} />
+                <input
+                  style={inputStyle}
+                  value={projectForm.startStation}
+                  onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })}
+                />
               </div>
               <div>
                 <div style={smallLabel}>Project end station</div>
-                <input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} />
+                <input
+                  style={inputStyle}
+                  value={projectForm.endStation}
+                  onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })}
+                />
               </div>
               <div>
                 <div style={smallLabel}>Project status</div>
-                <select style={inputStyle} value={projectForm.status} onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}>
+                <select
+                  style={inputStyle}
+                  value={projectForm.status}
+                  onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
+                >
                   <option>Active</option>
                   <option>On Hold</option>
                   <option>Waiting on Permits</option>
@@ -469,9 +657,19 @@ export default function App() {
               </div>
             </div>
 
+            {projectForm.trackingType === "Station based" && (
+              <div style={helperNote}>
+                Total footage is protected and calculated automatically from start station and end station.
+              </div>
+            )}
+
             <div style={{ marginTop: 14 }}>
               <div style={smallLabel}>Project comment / hold note</div>
-              <textarea style={{ ...inputStyle, minHeight: 100 }} value={projectForm.comment} onChange={(e) => setProjectForm({ ...projectForm, comment: e.target.value })} />
+              <textarea
+                style={{ ...inputStyle, minHeight: 100 }}
+                value={projectForm.comment}
+                onChange={(e) => setProjectForm({ ...projectForm, comment: e.target.value })}
+              />
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
@@ -530,6 +728,15 @@ export default function App() {
                 />
               </div>
 
+              <div>
+                <div style={smallLabel}>Footage (auto)</div>
+                <input
+                  style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }}
+                  value={productionPreviewFootage}
+                  readOnly
+                />
+              </div>
+
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Reference</div>
                 <input
@@ -567,7 +774,11 @@ export default function App() {
 
           <div style={sectionCard}>
             <div style={smallLabel}>Filter production by crew</div>
-            <select style={{ ...inputStyle, maxWidth: 260 }} value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)}>
+            <select
+              style={{ ...inputStyle, maxWidth: 260 }}
+              value={crewFilter}
+              onChange={(e) => setCrewFilter(e.target.value)}
+            >
               <option>All crews selected</option>
               <option>MIGUEL</option>
               <option>NALDI</option>
@@ -590,9 +801,25 @@ export default function App() {
               </div>
 
               {filteredRecords.map((record) => (
-                <div key={record.id} onClick={() => setSelectedRecordId(record.id)} style={{ ...tableRowOld, background: selectedRecordId === record.id ? "#f8fafc" : "#fff", cursor: "pointer" }}>
+                <div
+                  key={record.id}
+                  onClick={() => setSelectedRecordId(record.id)}
+                  style={{
+                    ...tableRowOld,
+                    background: selectedRecordId === record.id ? "#f8fafc" : "#fff",
+                    cursor: "pointer",
+                  }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(record.crew), display: "inline-block" }} />
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: getCrewColor(record.crew),
+                        display: "inline-block",
+                      }}
+                    />
                     {record.crew}
                   </div>
                   <div>{record.start} to {record.end}</div>
@@ -601,10 +828,28 @@ export default function App() {
                   <div>{record.footage}</div>
                   <div>{record.reference || "—"}</div>
                   <div>
-                    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
-                      {record.attachments?.length ? `${record.attachments.length} file(s)` : "No files"}
-                    </div>
-                    <label style={uploadButton}>
+                    {record.attachments?.length ? (
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {record.attachments.map((file, index) => (
+                          <div key={index} style={{ fontSize: 12, lineHeight: 1.35 }}>
+                            <div style={{ color: "#334155" }}>{file.name}</div>
+                            <a
+                              href={file.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ color: "#2563eb", textDecoration: "none" }}
+                            >
+                              Open
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>No files</div>
+                    )}
+
+                    <label style={{ ...uploadButton, marginTop: 8 }}>
                       Attach bore log
                       <input
                         type="file"
@@ -618,8 +863,24 @@ export default function App() {
                     </label>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleEditProduction(record); }}>Edit</button>
-                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleDeleteProduction(record.id); }}>Delete</button>
+                    <button
+                      style={tableButton}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditProduction(record);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      style={tableButton}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteProduction(record.id);
+                      }}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               ))}
@@ -633,17 +894,31 @@ export default function App() {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Area / Section</div>
-                <input style={inputStyle} value={ticketForm.areaSection} onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })} placeholder="Area 5, North block, Section B, etc." />
+                <input
+                  style={inputStyle}
+                  value={ticketForm.areaSection}
+                  onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })}
+                  placeholder="Area 5, North block, Section B, etc."
+                />
               </div>
 
               <div>
                 <div style={smallLabel}>Ticket number</div>
-                <input style={inputStyle} value={ticketForm.ticketNumber} onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })} placeholder="Sunshine 811 ticket number" />
+                <input
+                  style={inputStyle}
+                  value={ticketForm.ticketNumber}
+                  onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })}
+                  placeholder="Sunshine 811 ticket number"
+                />
               </div>
 
               <div>
                 <div style={smallLabel}>Status</div>
-                <select style={inputStyle} value={ticketForm.status} onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}>
+                <select
+                  style={inputStyle}
+                  value={ticketForm.status}
+                  onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}
+                >
                   <option>Open</option>
                   <option>Pending</option>
                   <option>Clear</option>
@@ -653,33 +928,67 @@ export default function App() {
 
               <div>
                 <div style={smallLabel}>Pending utility</div>
-                <input style={inputStyle} value={ticketForm.pendingUtility} onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })} placeholder="FPL, Water, Gas, Comcast, etc." />
+                <input
+                  style={inputStyle}
+                  value={ticketForm.pendingUtility}
+                  onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })}
+                  placeholder="FPL, Water, Gas, Comcast, etc."
+                />
               </div>
 
               <div>
                 <div style={smallLabel}>Expiration date</div>
-                <input type="date" style={inputStyle} value={ticketForm.expirationDate} onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })} />
+                <input
+                  type="date"
+                  style={inputStyle}
+                  value={ticketForm.expirationDate}
+                  onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })}
+                />
               </div>
 
               <div>
                 <div style={smallLabel}>Days left</div>
-                <input style={inputStyle} value={getDaysLeft(ticketForm.expirationDate)} readOnly />
+                <input
+                  style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }}
+                  value={getDaysLeft(ticketForm.expirationDate).text}
+                  readOnly
+                />
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Coverage / Description</div>
-                <input style={inputStyle} value={ticketForm.coverage} onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })} placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc." />
+                <input
+                  style={inputStyle}
+                  value={ticketForm.coverage}
+                  onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })}
+                  placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc."
+                />
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Notes</div>
-                <textarea style={{ ...inputStyle, minHeight: 100 }} value={ticketForm.notes} onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })} placeholder="Anything your supervisor should know about this ticket" />
+                <textarea
+                  style={{ ...inputStyle, minHeight: 100 }}
+                  value={ticketForm.notes}
+                  onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })}
+                  placeholder="Anything your supervisor should know about this ticket"
+                />
               </div>
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
-              <button style={primaryBtn} onClick={saveTicket}>{editingTicketId ? "Update Ticket" : "Save Ticket"}</button>
-              <button style={lightBtn} onClick={() => { setTicketForm(emptyTicketForm); setEditingTicketId(null); }}>Clear Ticket Form</button>
+              <button style={primaryBtn} onClick={saveTicket}>
+                {editingTicketId ? "Update Ticket" : "Save Ticket"}
+              </button>
+              <button
+                style={lightBtn}
+                onClick={() => {
+                  setTicketForm(emptyTicketForm);
+                  setEditingTicketId(null);
+                }}
+              >
+                Clear Ticket Form
+              </button>
             </div>
 
             <h2 style={{ marginTop: 24, marginBottom: 8 }}>Saved Tickets</h2>
@@ -695,21 +1004,29 @@ export default function App() {
                 <div>Actions</div>
               </div>
 
-              {ticketRecords.map((ticket) => (
-                <div key={ticket.id} style={tableRowTickets}>
-                  <div>{ticket.areaSection || "—"}</div>
-                  <div>{ticket.ticketNumber || "—"}</div>
-                  <div>{ticket.status}</div>
-                  <div>{ticket.pendingUtility || "—"}</div>
-                  <div>{ticket.expirationDate || "—"}</div>
-                  <div>{getDaysLeft(ticket.expirationDate)}</div>
-                  <div>{ticket.coverage || "—"}</div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button style={tableButton} onClick={() => editTicket(ticket)}>Edit</button>
-                    <button style={tableButton} onClick={() => deleteTicket(ticket.id)}>Delete</button>
+              {ticketRecords.map((ticket) => {
+                const daysLeft = getDaysLeft(ticket.expirationDate);
+                const ticketStatus = getTicketStatusStyle(ticket.status);
+                return (
+                  <div key={ticket.id} style={tableRowTickets}>
+                    <div>{ticket.areaSection || "—"}</div>
+                    <div>{ticket.ticketNumber || "—"}</div>
+                    <div>
+                      <span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>
+                        {ticket.status}
+                      </span>
+                    </div>
+                    <div>{ticket.pendingUtility || "—"}</div>
+                    <div>{ticket.expirationDate || "—"}</div>
+                    <div style={{ color: daysLeft.color }}>{daysLeft.text}</div>
+                    <div>{ticket.coverage || "—"}</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={tableButton} onClick={() => editTicket(ticket)}>Edit</button>
+                      <button style={tableButton} onClick={() => deleteTicket(ticket.id)}>Delete</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -752,9 +1069,25 @@ export default function App() {
 
             <div style={reviewSection}>
               <div style={bigLabel}>Attachments</div>
-              <div style={smallCommentText}>
-                {selectedRecord?.attachments?.length ? selectedRecord.attachments.join(", ") : "No attachments."}
-              </div>
+              {selectedRecord?.attachments?.length ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {selectedRecord.attachments.map((file, index) => (
+                    <div key={index} style={{ fontSize: 13 }}>
+                      <div style={{ color: "#334155" }}>{file.name}</div>
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        Open file
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={smallCommentText}>No attachments.</div>
+              )}
             </div>
           </div>
 
@@ -763,7 +1096,15 @@ export default function App() {
             {Object.entries(crewSummary).map(([crew, feet]) => (
               <div key={crew} style={summaryRow}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(crew), display: "inline-block" }} />
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: getCrewColor(crew),
+                      display: "inline-block",
+                    }}
+                  />
                   <strong>{crew}</strong>
                 </div>
                 <span>{feet} ft</span>
@@ -783,13 +1124,20 @@ export default function App() {
 
           <div style={reviewCard}>
             <div style={reviewTitle}>Ticket Readiness</div>
-            {ticketRecords.length ? ticketRecords.map((ticket) => (
-              <div key={ticket.id} style={gapRow}>
-                <strong>{ticket.ticketNumber || "No ticket number"}</strong>
-                <div>{ticket.areaSection || "No area / section"}</div>
-                <div>{ticket.status}</div>
-              </div>
-            )) : <div>No ticket records yet.</div>}
+            {ticketRecords.length ? ticketRecords.map((ticket) => {
+              const ticketStatus = getTicketStatusStyle(ticket.status);
+              return (
+                <div key={ticket.id} style={gapRow}>
+                  <strong>{ticket.ticketNumber || "No ticket number"}</strong>
+                  <div>{ticket.areaSection || "No area / section"}</div>
+                  <div>
+                    <span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>
+                      {ticket.status}
+                    </span>
+                  </div>
+                </div>
+              );
+            }) : <div>No ticket records yet.</div>}
           </div>
         </div>
       </div>
@@ -798,13 +1146,11 @@ export default function App() {
 }
 
 const pageStyle = {
-  height: "100vh",
+  minHeight: "100vh",
   background: "#f8fafc",
   color: "#111827",
   padding: 20,
   fontFamily: "Arial, sans-serif",
-  boxSizing: "border-box",
-  overflow: "hidden",
 };
 
 const layoutGrid = {
@@ -812,16 +1158,11 @@ const layoutGrid = {
   gridTemplateColumns: "1.8fr 1fr",
   gap: 20,
   alignItems: "start",
-  height: "100%",
-  minHeight: 0,
 };
 
 const mainBottom = {
   display: "grid",
   gap: 20,
-  minHeight: 0,
-  overflowY: "auto",
-  paddingRight: 6,
 };
 
 const headerCard = {
@@ -841,10 +1182,8 @@ const sectionCard = {
 const reviewPanel = {
   display: "grid",
   gap: 16,
-  minHeight: 0,
-  overflowY: "auto",
-  paddingRight: 6,
-  alignContent: "start",
+  position: "sticky",
+  top: 20,
 };
 
 const reviewHeaderCard = {
@@ -951,6 +1290,12 @@ const statusNoteBox = {
   background: "#fff",
 };
 
+const helperNote = {
+  marginTop: 10,
+  fontSize: 13,
+  color: "#475569",
+};
+
 const lineLabelRow = {
   display: "flex",
   justifyContent: "space-between",
@@ -1035,6 +1380,17 @@ const dangerBtn = {
   cursor: "pointer",
 };
 
+const uploadButton = {
+  display: "inline-block",
+  background: "#fff",
+  border: "1px solid #d1d5db",
+  borderRadius: 10,
+  padding: "8px 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  textAlign: "center",
+};
+
 const smallLabel = {
   fontSize: 13,
   fontWeight: 700,
@@ -1076,7 +1432,7 @@ const tableCard = {
 
 const tableHeaderOld = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.2fr 1fr 0.8fr 0.6fr 0.8fr 1.1fr 1fr",
+  gridTemplateColumns: "1fr 1.2fr 1fr 0.8fr 0.6fr 0.8fr 1.2fr 1fr",
   gap: 12,
   padding: 14,
   background: "#f8fafc",
@@ -1086,7 +1442,7 @@ const tableHeaderOld = {
 
 const tableRowOld = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.2fr 1fr 0.8fr 0.6fr 0.8fr 1.1fr 1fr",
+  gridTemplateColumns: "1fr 1.2fr 1fr 0.8fr 0.6fr 0.8fr 1.2fr 1fr",
   gap: 12,
   padding: 14,
   borderTop: "1px solid #e5e7eb",
@@ -1095,7 +1451,7 @@ const tableRowOld = {
 
 const tableHeaderTickets = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr 0.8fr 1fr 1fr 1fr 1.2fr 1fr",
+  gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr",
   gap: 12,
   padding: 14,
   background: "#f8fafc",
@@ -1105,7 +1461,7 @@ const tableHeaderTickets = {
 
 const tableRowTickets = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr 0.8fr 1fr 1fr 1fr 1.2fr 1fr",
+  gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr",
   gap: 12,
   padding: 14,
   borderTop: "1px solid #e5e7eb",
@@ -1118,16 +1474,4 @@ const tableButton = {
   borderRadius: 10,
   padding: "8px 10px",
   cursor: "pointer",
-};
-
-
-const uploadButton = {
-  display: "inline-block",
-  background: "#fff",
-  border: "1px solid #d1d5db",
-  borderRadius: 10,
-  padding: "8px 10px",
-  cursor: "pointer",
-  fontSize: 12,
-  textAlign: "center",
 };
