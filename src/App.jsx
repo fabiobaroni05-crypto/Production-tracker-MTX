@@ -798,11 +798,13 @@ export default function App() {
 }
 
 const pageStyle = {
-  minHeight: "100vh",
+  height: "100vh",
   background: "#f8fafc",
   color: "#111827",
   padding: 20,
   fontFamily: "Arial, sans-serif",
+  boxSizing: "border-box",
+  overflow: "hidden",
 };
 
 const layoutGrid = {
@@ -810,11 +812,16 @@ const layoutGrid = {
   gridTemplateColumns: "1.8fr 1fr",
   gap: 20,
   alignItems: "start",
+  height: "100%",
+  minHeight: 0,
 };
 
 const mainBottom = {
   display: "grid",
   gap: 20,
+  minHeight: 0,
+  overflowY: "auto",
+  paddingRight: 6,
 };
 
 const headerCard = {
@@ -834,8 +841,10 @@ const sectionCard = {
 const reviewPanel = {
   display: "grid",
   gap: 16,
-  position: "sticky",
-  top: 20,
+  minHeight: 0,
+  overflowY: "auto",
+  paddingRight: 6,
+  alignContent: "start",
 };
 
 const reviewHeaderCard = {
