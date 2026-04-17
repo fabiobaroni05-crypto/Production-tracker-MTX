@@ -56,6 +56,10 @@ function formatStation(feet) {
   return `${String(major).padStart(2, "0")}+${String(minor).padStart(2, "0")}`;
 }
 
+function normalizeCrewName(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
 function getCrewColor(crew) {
   return crewColors[crew] || crewColors.DEFAULT;
 }
@@ -211,21 +215,27 @@ function ProductionLine({ project, records, selectedRecordId, onSelectRecord }) 
 }
 
 export default function App() {
-  const [projects, setProjects] = useState([{ id: 1, ...emptyProjectForm }]);
+  const [projects, setProjects] = useState([
+    {
+      id: 1,
+      ...emptyProjectForm,
+      crews: ["MIGUEL", "FRANK", "NALDI", "YOYI"],
+    },
+  ]);
   const [selectedProjectId, setSelectedProjectId] = useState(1);
   const [projectForm, setProjectForm] = useState(projects[0]);
 
   const [productionRecords, setProductionRecords] = useState([
-    { id: 101, crew: "MIGUEL", date: "2026-04-06", start: "00+00", end: "03+50", footage: 350, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 102, crew: "FRANK", date: "2026-04-15", start: "03+50", end: "06+00", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 103, crew: "NALDI", date: "2026-04-05", start: "06+00", end: "07+50", footage: 150, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 104, crew: "NALDI", date: "2026-04-08", start: "10+00", end: "12+50", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 105, crew: "YOYI", date: "2026-04-14", start: "12+50", end: "18+50", footage: 600, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 101, projectId: 1, crew: "MIGUEL", date: "2026-04-06", start: "00+00", end: "03+50", footage: 350, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 102, projectId: 1, crew: "FRANK", date: "2026-04-15", start: "03+50", end: "06+00", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 103, projectId: 1, crew: "NALDI", date: "2026-04-05", start: "06+00", end: "07+50", footage: 150, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 104, projectId: 1, crew: "NALDI", date: "2026-04-08", start: "10+00", end: "12+50", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 105, projectId: 1, crew: "YOYI", date: "2026-04-14", start: "12+50", end: "18+50", footage: 600, reference: "", comments: "No comments added.", attachments: [] },
   ]);
 
   const [ticketRecords, setTicketRecords] = useState([
-    { id: 201, areaSection: "", ticketNumber: "123456789", status: "Open", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
-    { id: 202, areaSection: "15+00 TO 20+00", ticketNumber: "16868915", status: "Pending", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
+    { id: 201, projectId: 1, areaSection: "", ticketNumber: "123456789", status: "Open", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
+    { id: 202, projectId: 1, areaSection: "15+00 TO 20+00", ticketNumber: "16868915", status: "Pending", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
   ]);
 
   const [ticketForm, setTicketForm] = useState(emptyTicketForm);
@@ -236,37 +246,51 @@ export default function App() {
   const [selectedRecordId, setSelectedRecordId] = useState(103);
   const [selectedCrews, setSelectedCrews] = useState([]);
 
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) || projects[0];
-  const selectedRecord = productionRecords.find((record) => record.id === selectedRecordId) || null;
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) || projects[0],
+    [projects, selectedProjectId]
+  );
+
+  const projectRecords = useMemo(
+    () => productionRecords.filter((record) => record.projectId === selectedProjectId),
+    [productionRecords, selectedProjectId]
+  );
+
+  const projectTickets = useMemo(
+    () => ticketRecords.filter((ticket) => ticket.projectId === selectedProjectId),
+    [ticketRecords, selectedProjectId]
+  );
+
+  const selectedRecord =
+    projectRecords.find((record) => record.id === selectedRecordId) || null;
 
   const crewOptions = useMemo(() => {
-    const names = new Set();
-    productionRecords.forEach((record) => {
-      if (record.crew && record.crew.trim()) names.add(record.crew.trim());
-    });
-    if (productionForm.crew && productionForm.crew.trim()) names.add(productionForm.crew.trim().toUpperCase());
+    const names = new Set(selectedProject?.crews || []);
+    if (productionForm.crew && productionForm.crew.trim()) {
+      names.add(normalizeCrewName(productionForm.crew));
+    }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [productionRecords, productionForm.crew]);
+  }, [selectedProject, productionForm.crew]);
 
   const progress = useMemo(
-    () => getProjectProgress(selectedProject, productionRecords),
-    [selectedProject, productionRecords]
+    () => getProjectProgress(selectedProject, projectRecords),
+    [selectedProject, projectRecords]
   );
 
   const crewSummary = useMemo(
-    () => getCrewSummary(productionRecords),
-    [productionRecords]
+    () => getCrewSummary(projectRecords),
+    [projectRecords]
   );
 
   const gaps = useMemo(
-    () => getGaps(selectedProject, productionRecords),
-    [selectedProject, productionRecords]
+    () => getGaps(selectedProject, projectRecords),
+    [selectedProject, projectRecords]
   );
 
   const filteredRecords = useMemo(() => {
-    if (!selectedCrews.length) return productionRecords;
-    return productionRecords.filter((record) => selectedCrews.includes(record.crew));
-  }, [productionRecords, selectedCrews]);
+    if (!selectedCrews.length) return projectRecords;
+    return projectRecords.filter((record) => selectedCrews.includes(record.crew));
+  }, [projectRecords, selectedCrews]);
 
   const autoProjectTotal =
     projectForm.trackingType === "Station based"
@@ -280,8 +304,10 @@ export default function App() {
 
   const saveProject = () => {
     const payload = {
+      ...selectedProject,
       ...projectForm,
       id: selectedProjectId,
+      crews: selectedProject?.crews || [],
       totalFootage:
         projectForm.trackingType === "Station based"
           ? autoProjectTotal
@@ -297,8 +323,41 @@ export default function App() {
   const deleteProject = () => {
     const ok = window.confirm("Delete this project?");
     if (!ok) return;
-    setProjects((prev) => prev.filter((project) => project.id !== selectedProjectId));
-    setSelectedProjectId(null);
+
+    const remainingProjects = projects.filter((project) => project.id !== selectedProjectId);
+
+    setProductionRecords((prev) =>
+      prev.filter((record) => record.projectId !== selectedProjectId)
+    );
+    setTicketRecords((prev) =>
+      prev.filter((ticket) => ticket.projectId !== selectedProjectId)
+    );
+    setSelectedCrews([]);
+    setSelectedRecordId(null);
+    setEditingRecordId(null);
+    setEditingTicketId(null);
+    setProductionForm(emptyProductionForm);
+    setTicketForm(emptyTicketForm);
+
+    if (remainingProjects.length) {
+      const nextProject = remainingProjects[0];
+      setProjects(remainingProjects);
+      setSelectedProjectId(nextProject.id);
+      setProjectForm(nextProject);
+    } else {
+      const id = Date.now();
+      const fallbackProject = {
+        id,
+        ...emptyProjectForm,
+        name: "New Project",
+        client: "",
+        endStation: "00+00",
+        crews: [],
+      };
+      setProjects([fallbackProject]);
+      setSelectedProjectId(id);
+      setProjectForm(fallbackProject);
+    }
   };
 
   const newProject = () => {
@@ -312,28 +371,37 @@ export default function App() {
       endStation: "00+00",
       totalFootage: 0,
       comment: "",
+      crews: [],
     };
     setProjects((prev) => [project, ...prev]);
     setSelectedProjectId(id);
     setProjectForm(project);
-    setProductionRecords([]);
-    setTicketRecords([]);
     setSelectedRecordId(null);
     setSelectedCrews([]);
+    setEditingRecordId(null);
+    setEditingTicketId(null);
+    setProductionForm(emptyProductionForm);
+    setTicketForm(emptyTicketForm);
   };
 
   const handleSaveProduction = () => {
+    if (!selectedProjectId) {
+      alert("Select a project first.");
+      return;
+    }
+
     if (!productionForm.crew || !productionForm.date || !productionForm.start || !productionForm.end) {
       alert("Fill crew, date, start station, and end station.");
       return;
     }
 
-    const cleanCrew = productionForm.crew.trim().toUpperCase();
+    const cleanCrew = normalizeCrewName(productionForm.crew);
     const existingAttachments =
       productionRecords.find((record) => record.id === editingRecordId)?.attachments || [];
 
     const payload = {
       id: editingRecordId || Date.now(),
+      projectId: selectedProjectId,
       ...productionForm,
       crew: cleanCrew,
       footage: getProductionFootage(productionForm.start, productionForm.end),
@@ -349,6 +417,19 @@ export default function App() {
       setProductionRecords((prev) => [...prev, payload]);
       setSelectedRecordId(payload.id);
     }
+
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === selectedProjectId
+          ? {
+              ...project,
+              crews: project.crews?.includes(cleanCrew)
+                ? project.crews
+                : [...(project.crews || []), cleanCrew].sort((a, b) => a.localeCompare(b)),
+            }
+          : project
+      )
+    );
 
     setProductionForm(emptyProductionForm);
     setEditingRecordId(null);
@@ -372,7 +453,7 @@ export default function App() {
     if (!ok) return;
 
     setProductionRecords((prev) => prev.filter((record) => record.id !== id));
-    if (selectedRecordId === id) setSelectedRecordId("");
+    if (selectedRecordId === id) setSelectedRecordId(null);
     if (editingRecordId === id) {
       setEditingRecordId(null);
       setProductionForm(emptyProductionForm);
@@ -398,12 +479,17 @@ export default function App() {
   };
 
   const saveTicket = () => {
+    if (!selectedProjectId) {
+      alert("Select a project first.");
+      return;
+    }
+
     if (!ticketForm.ticketNumber && !ticketForm.areaSection) {
       alert("Add at least ticket number or area / section.");
       return;
     }
 
-    const payload = { id: editingTicketId || Date.now(), ...ticketForm };
+    const payload = { id: editingTicketId || Date.now(), projectId: selectedProjectId, ...ticketForm };
 
     if (editingTicketId) {
       setTicketRecords((prev) =>
@@ -477,6 +563,12 @@ export default function App() {
                   const id = Number(e.target.value);
                   const found = projects.find((project) => project.id === id);
                   setSelectedProjectId(id);
+                  setSelectedCrews([]);
+                  setSelectedRecordId(null);
+                  setEditingRecordId(null);
+                  setEditingTicketId(null);
+                  setProductionForm(emptyProductionForm);
+                  setTicketForm(emptyTicketForm);
                   if (found) setProjectForm(found);
                 }}
               >
@@ -520,7 +612,7 @@ export default function App() {
             <div style={{ marginTop: 16 }}>
               <ProductionLine
                 project={selectedProject}
-                records={productionRecords}
+                records={projectRecords}
                 selectedRecordId={selectedRecordId}
                 onSelectRecord={(record) => setSelectedRecordId(record.id)}
               />
@@ -594,7 +686,7 @@ export default function App() {
           <div style={sectionCard}>
             <h2 style={{ marginTop: 0, textAlign: "center" }}>Add Section Record</h2>
             <p style={{ marginTop: 0, color: "#4b5563", fontSize: 14, textAlign: "center" }}>
-              Use this for your control only. Crew colors are automatic and stay consistent inside the project.
+              Type a new crew name whenever you need. Once saved, that crew becomes available for this project.
             </p>
 
             <div style={formGrid2}>
@@ -761,6 +853,10 @@ export default function App() {
                   </div>
                 </div>
               ))}
+
+              {!filteredRecords.length && (
+                <div style={{ padding: 18, color: "#64748b" }}>No production saved yet for this filter.</div>
+              )}
             </div>
 
             <h2 style={{ marginTop: 28, textAlign: "left", marginBottom: 6 }}>811 Ticket Control</h2>
@@ -837,7 +933,7 @@ export default function App() {
                 <div>Actions</div>
               </div>
 
-              {ticketRecords.map((ticket) => {
+              {projectTickets.map((ticket) => {
                 const daysLeft = getDaysLeft(ticket.expirationDate);
                 const ticketStatus = getTicketStatusStyle(ticket.status);
                 return (
@@ -860,6 +956,10 @@ export default function App() {
                   </div>
                 );
               })}
+
+              {!projectTickets.length && (
+                <div style={{ padding: 18, color: "#64748b" }}>No tickets saved yet for this project.</div>
+              )}
             </div>
           </div>
         </div>
@@ -945,6 +1045,26 @@ export default function App() {
           </div>
 
           <div style={reviewCard}>
+            <div style={reviewTitle}>Saved crews in this project</div>
+            {crewOptions.length ? crewOptions.map((crew) => (
+              <div key={crew} style={summaryRow}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: getCrewColor(crew),
+                      display: "inline-block",
+                    }}
+                  />
+                  <strong>{crew}</strong>
+                </div>
+              </div>
+            )) : <div>No crews saved yet.</div>}
+          </div>
+
+          <div style={reviewCard}>
             <div style={reviewTitle}>Open Gaps</div>
             {gaps.length ? gaps.map((gap, index) => (
               <div key={index} style={gapRow}>
@@ -956,7 +1076,7 @@ export default function App() {
 
           <div style={reviewCard}>
             <div style={reviewTitle}>Ticket Readiness</div>
-            {ticketRecords.length ? ticketRecords.map((ticket) => {
+            {projectTickets.length ? projectTickets.map((ticket) => {
               const ticketStatus = getTicketStatusStyle(ticket.status);
               return (
                 <div key={ticket.id} style={gapRow}>
