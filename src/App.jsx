@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const crewColors = {
   MIGUEL: "#635bff",
@@ -38,6 +38,23 @@ const emptyTicketForm = {
   coverage: "",
   notes: "",
 };
+
+const STORAGE_KEYS = {
+  projects: "production_tracker_projects",
+  selectedProjectId: "production_tracker_selected_project_id",
+  productionRecords: "production_tracker_production_records",
+  ticketRecords: "production_tracker_ticket_records",
+};
+
+function safeRead(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 
 function stationToFeet(station) {
   if (!station) return 0;
@@ -241,28 +258,46 @@ function ProductionLine({ project, records }) {
 }
 
 export default function App() {
-  const [projects, setProjects] = useState([
+  const defaultProjects = [
     {
       id: 1,
       ...emptyProjectForm,
       crews: ["MIGUEL", "FRANK", "NALDI", "YOYI"],
     },
-  ]);
-  const [selectedProjectId, setSelectedProjectId] = useState(1);
-  const [projectForm, setProjectForm] = useState(projects[0]);
+  ];
 
-  const [productionRecords, setProductionRecords] = useState([
+  const defaultProductionRecords = [
     { id: 101, projectId: 1, crew: "MIGUEL", date: "2026-04-06", start: "00+00", end: "03+50", footage: 350, reference: "", comments: "No comments added.", attachments: [] },
     { id: 102, projectId: 1, crew: "FRANK", date: "2026-04-15", start: "03+50", end: "06+00", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
     { id: 103, projectId: 1, crew: "NALDI", date: "2026-04-05", start: "06+00", end: "07+50", footage: 150, reference: "", comments: "No comments added.", attachments: [] },
     { id: 104, projectId: 1, crew: "NALDI", date: "2026-04-08", start: "10+00", end: "12+50", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
     { id: 105, projectId: 1, crew: "YOYI", date: "2026-04-14", start: "12+50", end: "18+50", footage: 600, reference: "", comments: "No comments added.", attachments: [] },
-  ]);
+  ];
 
-  const [ticketRecords, setTicketRecords] = useState([
+  const defaultTicketRecords = [
     { id: 201, projectId: 1, areaSection: "", ticketNumber: "123456789", status: "Open", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
     { id: 202, projectId: 1, areaSection: "15+00 TO 20+00", ticketNumber: "16868915", status: "Pending", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
-  ]);
+  ];
+
+  const [projects, setProjects] = useState(() => safeRead(STORAGE_KEYS.projects, defaultProjects));
+  const [selectedProjectId, setSelectedProjectId] = useState(() => {
+    const saved = safeRead(STORAGE_KEYS.selectedProjectId, 1);
+    const savedProjects = safeRead(STORAGE_KEYS.projects, defaultProjects);
+    return savedProjects.some((project) => project.id === saved) ? saved : savedProjects[0].id;
+  });
+  const [projectForm, setProjectForm] = useState(() => {
+    const savedProjects = safeRead(STORAGE_KEYS.projects, defaultProjects);
+    const savedSelectedId = safeRead(STORAGE_KEYS.selectedProjectId, 1);
+    return savedProjects.find((project) => project.id === savedSelectedId) || savedProjects[0];
+  });
+
+  const [productionRecords, setProductionRecords] = useState(() =>
+    safeRead(STORAGE_KEYS.productionRecords, defaultProductionRecords)
+  );
+
+  const [ticketRecords, setTicketRecords] = useState(() =>
+    safeRead(STORAGE_KEYS.ticketRecords, defaultTicketRecords)
+  );
 
   const [ticketForm, setTicketForm] = useState(emptyTicketForm);
   const [editingTicketId, setEditingTicketId] = useState(null);
@@ -286,6 +321,23 @@ export default function App() {
     [selectedProject, projectForm]
   );
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.projects, JSON.stringify(projects));
+  }, [projects]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.selectedProjectId, JSON.stringify(selectedProjectId));
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.productionRecords, JSON.stringify(productionRecords));
+  }, [productionRecords]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.ticketRecords, JSON.stringify(ticketRecords));
+  }, [ticketRecords]);
+
+
   const projectRecords = useMemo(
     () => productionRecords.filter((record) => record.projectId === selectedProjectId),
     [productionRecords, selectedProjectId]
@@ -298,6 +350,13 @@ export default function App() {
 
   const selectedRecord =
     projectRecords.find((record) => record.id === selectedRecordId) || null;
+
+  useEffect(() => {
+    if (selectedProject) {
+      setProjectForm(selectedProject);
+    }
+  }, [selectedProjectId]);
+
 
   const crewOptions = useMemo(() => {
     const names = new Set(selectedProject?.crews || []);
