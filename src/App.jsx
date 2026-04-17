@@ -180,7 +180,10 @@ function ProductionLine({ project, records }) {
       <div style={lineTrack}>
         <div
           style={{
-            height: "100%",
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
             width: `${percent}%`,
             background: "#22c55e",
             borderRadius: 999,
@@ -188,6 +191,25 @@ function ProductionLine({ project, records }) {
           }}
         />
       </div>
+
+      {project.trackingType === "Station based" && (
+        <div style={legendRow}>
+          {Object.keys(getCrewSummary(records)).map((crew) => (
+            <div key={crew} style={legendPill}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: getCrewColor(crew),
+                  display: "inline-block",
+                }}
+              />
+              {crew}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
