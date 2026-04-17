@@ -251,6 +251,15 @@ export default function App() {
     [projects, selectedProjectId]
   );
 
+  const displayProject = useMemo(
+    () => ({
+      ...(selectedProject || {}),
+      ...(projectForm || {}),
+      crews: selectedProject?.crews || [],
+    }),
+    [selectedProject, projectForm]
+  );
+
   const projectRecords = useMemo(
     () => productionRecords.filter((record) => record.projectId === selectedProjectId),
     [productionRecords, selectedProjectId]
@@ -273,8 +282,8 @@ export default function App() {
   }, [selectedProject, productionForm.crew]);
 
   const progress = useMemo(
-    () => getProjectProgress(selectedProject, projectRecords),
-    [selectedProject, projectRecords]
+    () => getProjectProgress(displayProject, projectRecords),
+    [displayProject, projectRecords]
   );
 
   const crewSummary = useMemo(
@@ -283,8 +292,8 @@ export default function App() {
   );
 
   const gaps = useMemo(
-    () => getGaps(selectedProject, projectRecords),
-    [selectedProject, projectRecords]
+    () => getGaps(displayProject, projectRecords),
+    [displayProject, projectRecords]
   );
 
   const filteredRecords = useMemo(() => {
@@ -581,11 +590,11 @@ export default function App() {
             </div>
 
             <div style={metaPillRow}>
-              <span style={metaPill}>Project: {selectedProject?.name || "No project"}</span>
-              <span style={metaPill}>Type: {selectedProject?.trackingType}</span>
-              <span style={metaPill}>Status: {selectedProject?.status}</span>
+              <span style={metaPill}>Project: {displayProject?.name || "No project"}</span>
+              <span style={metaPill}>Type: {displayProject?.trackingType}</span>
+              <span style={metaPill}>Status: {displayProject?.status}</span>
               <span style={metaPill}>
-                Stations: {selectedProject?.startStation} to {selectedProject?.endStation}
+                Stations: {displayProject?.startStation} to {displayProject?.endStation}
               </span>
               <span style={metaPill}>{formatFeet(progress.total)}</span>
             </div>
@@ -606,12 +615,12 @@ export default function App() {
             </div>
 
             <div style={statusNoteBox}>
-              <strong>Status note:</strong> {selectedProject?.comment || "No project comment added."}
+              <strong>Status note:</strong> {displayProject?.comment || "No project comment added."}
             </div>
 
             <div style={{ marginTop: 16 }}>
               <ProductionLine
-                project={selectedProject}
+                project={displayProject}
                 records={projectRecords}
                 selectedRecordId={selectedRecordId}
                 onSelectRecord={(record) => setSelectedRecordId(record.id)}
@@ -974,12 +983,12 @@ export default function App() {
 
             <div style={reviewSection}>
               <div style={bigLabel}>Project status</div>
-              <span style={statusBadge}>{selectedProject?.status || "Active"}</span>
+              <span style={statusBadge}>{displayProject?.status || "Active"}</span>
             </div>
 
             <div style={reviewSection}>
               <div style={bigLabel}>Project comment</div>
-              <div style={smallCommentText}>{selectedProject?.comment || "No project comment added."}</div>
+              <div style={smallCommentText}>{displayProject?.comment || "No project comment added."}</div>
             </div>
 
             <div style={reviewSection}>
