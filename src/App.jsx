@@ -793,7 +793,7 @@ export default function App() {
                 <div>Crew</div>
                 <div>Range</div>
                 <div>Date</div>
-                <div>Status</div>
+                
                 <div>Feet</div>
 
                 <div>Attachments</div>
@@ -996,7 +996,7 @@ export default function App() {
               <div style={tableHeaderTickets}>
                 <div>Area</div>
                 <div>Ticket</div>
-                <div>Status</div>
+                
                 <div>Pending utility</div>
                 <div>Expiration</div>
                 <div>Days left</div>
@@ -1054,7 +1054,7 @@ export default function App() {
               <div>{selectedRecord ? `${selectedRecord.start} to ${selectedRecord.end}` : "No production selected yet."}</div>
               <div>{selectedRecord?.date || ""}</div>
               <div>{selectedRecord ? `${selectedRecord.footage} ft` : ""}</div>
-              <div>Status: Finished</div>
+              
             </div>
 
             <div style={reviewSection}>
@@ -1432,7 +1432,7 @@ const tableCard = {
 
 const tableHeaderOld = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.3fr 1fr 0.8fr 0.7fr 1.3fr 1fr",
+  gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr",
   gap: 12,
   padding: 14,
   background: "#f8fafc",
