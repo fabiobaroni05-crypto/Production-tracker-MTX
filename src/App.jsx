@@ -216,84 +216,16 @@ export default function App() {
   const [projectForm, setProjectForm] = useState(projects[0]);
 
   const [productionRecords, setProductionRecords] = useState([
-    {
-      id: 101,
-      crew: "MIGUEL",
-      date: "2026-04-06",
-      start: "00+00",
-      end: "03+50",
-      footage: 350,
-      reference: "",
-      comments: "No comments added.",
-      attachments: [],
-    },
-    {
-      id: 102,
-      crew: "FRANK",
-      date: "2026-04-15",
-      start: "03+50",
-      end: "06+00",
-      footage: 250,
-      reference: "",
-      comments: "No comments added.",
-      attachments: [],
-    },
-    {
-      id: 103,
-      crew: "NALDI",
-      date: "2026-04-05",
-      start: "06+00",
-      end: "07+50",
-      footage: 150,
-      reference: "",
-      comments: "No comments added.",
-      attachments: [],
-    },
-    {
-      id: 104,
-      crew: "NALDI",
-      date: "2026-04-08",
-      start: "10+00",
-      end: "12+50",
-      footage: 250,
-      reference: "",
-      comments: "No comments added.",
-      attachments: [],
-    },
-    {
-      id: 105,
-      crew: "YOYI",
-      date: "2026-04-14",
-      start: "12+50",
-      end: "18+50",
-      footage: 600,
-      reference: "",
-      comments: "No comments added.",
-      attachments: [],
-    },
+    { id: 101, crew: "MIGUEL", date: "2026-04-06", start: "00+00", end: "03+50", footage: 350, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 102, crew: "FRANK", date: "2026-04-15", start: "03+50", end: "06+00", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 103, crew: "NALDI", date: "2026-04-05", start: "06+00", end: "07+50", footage: 150, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 104, crew: "NALDI", date: "2026-04-08", start: "10+00", end: "12+50", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
+    { id: 105, crew: "YOYI", date: "2026-04-14", start: "12+50", end: "18+50", footage: 600, reference: "", comments: "No comments added.", attachments: [] },
   ]);
 
   const [ticketRecords, setTicketRecords] = useState([
-    {
-      id: 201,
-      areaSection: "",
-      ticketNumber: "123456789",
-      status: "Open",
-      pendingUtility: "",
-      expirationDate: "",
-      coverage: "",
-      notes: "",
-    },
-    {
-      id: 202,
-      areaSection: "15+00 TO 20+00",
-      ticketNumber: "16868915",
-      status: "Pending",
-      pendingUtility: "",
-      expirationDate: "",
-      coverage: "",
-      notes: "",
-    },
+    { id: 201, areaSection: "", ticketNumber: "123456789", status: "Open", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
+    { id: 202, areaSection: "15+00 TO 20+00", ticketNumber: "16868915", status: "Pending", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
   ]);
 
   const [ticketForm, setTicketForm] = useState(emptyTicketForm);
@@ -302,13 +234,19 @@ export default function App() {
   const [productionForm, setProductionForm] = useState(emptyProductionForm);
   const [editingRecordId, setEditingRecordId] = useState(null);
   const [selectedRecordId, setSelectedRecordId] = useState(103);
-  const [crewFilter, setCrewFilter] = useState("All crews selected");
+  const [selectedCrews, setSelectedCrews] = useState([]);
 
-  const selectedProject =
-    projects.find((project) => project.id === selectedProjectId) || projects[0];
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) || projects[0];
+  const selectedRecord = productionRecords.find((record) => record.id === selectedRecordId) || null;
 
-  const selectedRecord =
-    productionRecords.find((record) => record.id === selectedRecordId) || null;
+  const crewOptions = useMemo(() => {
+    const names = new Set();
+    productionRecords.forEach((record) => {
+      if (record.crew && record.crew.trim()) names.add(record.crew.trim());
+    });
+    if (productionForm.crew && productionForm.crew.trim()) names.add(productionForm.crew.trim().toUpperCase());
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [productionRecords, productionForm.crew]);
 
   const progress = useMemo(
     () => getProjectProgress(selectedProject, productionRecords),
@@ -326,9 +264,9 @@ export default function App() {
   );
 
   const filteredRecords = useMemo(() => {
-    if (crewFilter === "All crews selected") return productionRecords;
-    return productionRecords.filter((record) => record.crew === crewFilter);
-  }, [productionRecords, crewFilter]);
+    if (!selectedCrews.length) return productionRecords;
+    return productionRecords.filter((record) => selectedCrews.includes(record.crew));
+  }, [productionRecords, selectedCrews]);
 
   const autoProjectTotal =
     projectForm.trackingType === "Station based"
@@ -381,6 +319,7 @@ export default function App() {
     setProductionRecords([]);
     setTicketRecords([]);
     setSelectedRecordId(null);
+    setSelectedCrews([]);
   };
 
   const handleSaveProduction = () => {
@@ -389,12 +328,14 @@ export default function App() {
       return;
     }
 
+    const cleanCrew = productionForm.crew.trim().toUpperCase();
     const existingAttachments =
       productionRecords.find((record) => record.id === editingRecordId)?.attachments || [];
 
     const payload = {
       id: editingRecordId || Date.now(),
       ...productionForm,
+      crew: cleanCrew,
       footage: getProductionFootage(productionForm.start, productionForm.end),
       attachments: existingAttachments,
     };
@@ -499,6 +440,12 @@ export default function App() {
     }
   };
 
+  const toggleCrewFilter = (crew) => {
+    setSelectedCrews((prev) =>
+      prev.includes(crew) ? prev.filter((item) => item !== crew) : [...prev, crew]
+    );
+  };
+
   return (
     <div style={pageStyle}>
       <div style={layoutGrid}>
@@ -586,41 +533,23 @@ export default function App() {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Project name</div>
-                <input
-                  style={inputStyle}
-                  value={projectForm.name}
-                  onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
-                />
+                <input style={inputStyle} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} />
               </div>
               <div>
                 <div style={smallLabel}>Client</div>
-                <input
-                  style={inputStyle}
-                  value={projectForm.client}
-                  onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })}
-                />
+                <input style={inputStyle} value={projectForm.client} onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })} />
               </div>
               <div>
                 <div style={smallLabel}>Tracking type</div>
-                <select
-                  style={inputStyle}
-                  value={projectForm.trackingType}
-                  onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value })}
-                >
+                <select style={inputStyle} value={projectForm.trackingType} onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value })}>
                   <option>Station based</option>
                   <option>Footage based</option>
                 </select>
               </div>
               <div>
-                <div style={smallLabel}>
-                  Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}
-                </div>
+                <div style={smallLabel}>Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}</div>
                 <input
-                  style={{
-                    ...inputStyle,
-                    background: projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff",
-                    color: projectForm.trackingType === "Station based" ? "#475569" : "#111827",
-                  }}
+                  style={{ ...inputStyle, background: projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff", color: projectForm.trackingType === "Station based" ? "#475569" : "#111827" }}
                   value={projectForm.trackingType === "Station based" ? autoProjectTotal : projectForm.totalFootage}
                   readOnly={projectForm.trackingType === "Station based"}
                   onChange={(e) => setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })}
@@ -628,27 +557,15 @@ export default function App() {
               </div>
               <div>
                 <div style={smallLabel}>Project start station</div>
-                <input
-                  style={inputStyle}
-                  value={projectForm.startStation}
-                  onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })}
-                />
+                <input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} />
               </div>
               <div>
                 <div style={smallLabel}>Project end station</div>
-                <input
-                  style={inputStyle}
-                  value={projectForm.endStation}
-                  onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })}
-                />
+                <input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} />
               </div>
               <div>
                 <div style={smallLabel}>Project status</div>
-                <select
-                  style={inputStyle}
-                  value={projectForm.status}
-                  onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
-                >
+                <select style={inputStyle} value={projectForm.status} onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}>
                   <option>Active</option>
                   <option>On Hold</option>
                   <option>Waiting on Permits</option>
@@ -665,11 +582,7 @@ export default function App() {
 
             <div style={{ marginTop: 14 }}>
               <div style={smallLabel}>Project comment / hold note</div>
-              <textarea
-                style={{ ...inputStyle, minHeight: 100 }}
-                value={projectForm.comment}
-                onChange={(e) => setProjectForm({ ...projectForm, comment: e.target.value })}
-              />
+              <textarea style={{ ...inputStyle, minHeight: 100 }} value={projectForm.comment} onChange={(e) => setProjectForm({ ...projectForm, comment: e.target.value })} />
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
@@ -687,72 +600,48 @@ export default function App() {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Crew</div>
-                <select
+                <input
+                  list="crew-options"
                   style={inputStyle}
                   value={productionForm.crew}
                   onChange={(e) => setProductionForm({ ...productionForm, crew: e.target.value })}
-                >
-                  <option value="">Select crew</option>
-                  <option>MIGUEL</option>
-                  <option>NALDI</option>
-                  <option>YOYI</option>
-                  <option>FRANK</option>
-                </select>
+                  placeholder="Type or select crew"
+                />
+                <datalist id="crew-options">
+                  {crewOptions.map((crew) => (
+                    <option key={crew} value={crew} />
+                  ))}
+                </datalist>
               </div>
 
               <div>
                 <div style={smallLabel}>Date</div>
-                <input
-                  type="date"
-                  style={inputStyle}
-                  value={productionForm.date}
-                  onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })}
-                />
+                <input type="date" style={inputStyle} value={productionForm.date} onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })} />
               </div>
 
               <div>
                 <div style={smallLabel}>Start station</div>
-                <input
-                  style={inputStyle}
-                  value={productionForm.start}
-                  onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })}
-                />
+                <input style={inputStyle} value={productionForm.start} onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })} />
               </div>
 
               <div>
                 <div style={smallLabel}>End station</div>
-                <input
-                  style={inputStyle}
-                  value={productionForm.end}
-                  onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })}
-                />
+                <input style={inputStyle} value={productionForm.end} onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })} />
               </div>
 
               <div>
                 <div style={smallLabel}>Footage (auto)</div>
-                <input
-                  style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }}
-                  value={productionPreviewFootage}
-                  readOnly
-                />
+                <input style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }} value={productionPreviewFootage} readOnly />
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Reference</div>
-                <input
-                  style={inputStyle}
-                  value={productionForm.reference}
-                  onChange={(e) => setProductionForm({ ...productionForm, reference: e.target.value })}
-                />
+                <input style={inputStyle} value={productionForm.reference} onChange={(e) => setProductionForm({ ...productionForm, reference: e.target.value })} />
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Comments</div>
-                <textarea
-                  style={{ ...inputStyle, minHeight: 90 }}
-                  value={productionForm.comments}
-                  onChange={(e) => setProductionForm({ ...productionForm, comments: e.target.value })}
-                />
+                <textarea style={{ ...inputStyle, minHeight: 90 }} value={productionForm.comments} onChange={(e) => setProductionForm({ ...productionForm, comments: e.target.value })} />
               </div>
             </div>
 
@@ -760,13 +649,7 @@ export default function App() {
               <button style={primaryBtn} onClick={handleSaveProduction}>
                 {editingRecordId ? "Update Section" : "Save Section"}
               </button>
-              <button
-                style={lightBtn}
-                onClick={() => {
-                  setProductionForm(emptyProductionForm);
-                  setEditingRecordId(null);
-                }}
-              >
+              <button style={lightBtn} onClick={() => { setProductionForm(emptyProductionForm); setEditingRecordId(null); }}>
                 Clear
               </button>
             </div>
@@ -774,17 +657,26 @@ export default function App() {
 
           <div style={sectionCard}>
             <div style={smallLabel}>Filter production by crew</div>
-            <select
-              style={{ ...inputStyle, maxWidth: 260 }}
-              value={crewFilter}
-              onChange={(e) => setCrewFilter(e.target.value)}
-            >
-              <option>All crews selected</option>
-              <option>MIGUEL</option>
-              <option>NALDI</option>
-              <option>YOYI</option>
-              <option>FRANK</option>
-            </select>
+            <div style={filterWrap}>
+              <button
+                type="button"
+                style={!selectedCrews.length ? selectedFilterChip : filterChip}
+                onClick={() => setSelectedCrews([])}
+              >
+                All crews
+              </button>
+
+              {crewOptions.map((crew) => (
+                <button
+                  key={crew}
+                  type="button"
+                  style={selectedCrews.includes(crew) ? selectedFilterChip : filterChip}
+                  onClick={() => toggleCrewFilter(crew)}
+                >
+                  {crew}
+                </button>
+              ))}
+            </div>
 
             <h2 style={{ marginTop: 24, marginBottom: 8 }}>Saved Section Records</h2>
 
@@ -793,9 +685,7 @@ export default function App() {
                 <div>Crew</div>
                 <div>Range</div>
                 <div>Date</div>
-                
                 <div>Feet</div>
-
                 <div>Attachments</div>
                 <div>Actions</div>
               </div>
@@ -824,9 +714,8 @@ export default function App() {
                   </div>
                   <div>{record.start} to {record.end}</div>
                   <div>{record.date}</div>
-                  <div><span style={statusChip}>Finished</span></div>
                   <div>{record.footage}</div>
-                  
+
                   <div>
                     {record.attachments?.length ? (
                       <div style={{ display: "grid", gap: 6 }}>
@@ -863,22 +752,10 @@ export default function App() {
                     </label>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      style={tableButton}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditProduction(record);
-                      }}
-                    >
+                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleEditProduction(record); }}>
                       Edit
                     </button>
-                    <button
-                      style={tableButton}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteProduction(record.id);
-                      }}
-                    >
+                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleDeleteProduction(record.id); }}>
                       Delete
                     </button>
                   </div>
@@ -894,31 +771,17 @@ export default function App() {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Area / Section</div>
-                <input
-                  style={inputStyle}
-                  value={ticketForm.areaSection}
-                  onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })}
-                  placeholder="Area 5, North block, Section B, etc."
-                />
+                <input style={inputStyle} value={ticketForm.areaSection} onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })} placeholder="Area 5, North block, Section B, etc." />
               </div>
 
               <div>
                 <div style={smallLabel}>Ticket number</div>
-                <input
-                  style={inputStyle}
-                  value={ticketForm.ticketNumber}
-                  onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })}
-                  placeholder="Sunshine 811 ticket number"
-                />
+                <input style={inputStyle} value={ticketForm.ticketNumber} onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })} placeholder="Sunshine 811 ticket number" />
               </div>
 
               <div>
                 <div style={smallLabel}>Status</div>
-                <select
-                  style={inputStyle}
-                  value={ticketForm.status}
-                  onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}
-                >
+                <select style={inputStyle} value={ticketForm.status} onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}>
                   <option>Open</option>
                   <option>Pending</option>
                   <option>Clear</option>
@@ -928,51 +791,27 @@ export default function App() {
 
               <div>
                 <div style={smallLabel}>Pending utility</div>
-                <input
-                  style={inputStyle}
-                  value={ticketForm.pendingUtility}
-                  onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })}
-                  placeholder="FPL, Water, Gas, Comcast, etc."
-                />
+                <input style={inputStyle} value={ticketForm.pendingUtility} onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })} placeholder="FPL, Water, Gas, Comcast, etc." />
               </div>
 
               <div>
                 <div style={smallLabel}>Expiration date</div>
-                <input
-                  type="date"
-                  style={inputStyle}
-                  value={ticketForm.expirationDate}
-                  onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })}
-                />
+                <input type="date" style={inputStyle} value={ticketForm.expirationDate} onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })} />
               </div>
 
               <div>
                 <div style={smallLabel}>Days left</div>
-                <input
-                  style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }}
-                  value={getDaysLeft(ticketForm.expirationDate).text}
-                  readOnly
-                />
+                <input style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }} value={getDaysLeft(ticketForm.expirationDate).text} readOnly />
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Coverage / Description</div>
-                <input
-                  style={inputStyle}
-                  value={ticketForm.coverage}
-                  onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })}
-                  placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc."
-                />
+                <input style={inputStyle} value={ticketForm.coverage} onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })} placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc." />
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Notes</div>
-                <textarea
-                  style={{ ...inputStyle, minHeight: 100 }}
-                  value={ticketForm.notes}
-                  onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })}
-                  placeholder="Anything your supervisor should know about this ticket"
-                />
+                <textarea style={{ ...inputStyle, minHeight: 100 }} value={ticketForm.notes} onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })} placeholder="Anything your supervisor should know about this ticket" />
               </div>
             </div>
 
@@ -980,13 +819,7 @@ export default function App() {
               <button style={primaryBtn} onClick={saveTicket}>
                 {editingTicketId ? "Update Ticket" : "Save Ticket"}
               </button>
-              <button
-                style={lightBtn}
-                onClick={() => {
-                  setTicketForm(emptyTicketForm);
-                  setEditingTicketId(null);
-                }}
-              >
+              <button style={lightBtn} onClick={() => { setTicketForm(emptyTicketForm); setEditingTicketId(null); }}>
                 Clear Ticket Form
               </button>
             </div>
@@ -996,7 +829,7 @@ export default function App() {
               <div style={tableHeaderTickets}>
                 <div>Area</div>
                 <div>Ticket</div>
-                
+                <div>Status</div>
                 <div>Pending utility</div>
                 <div>Expiration</div>
                 <div>Days left</div>
@@ -1054,7 +887,6 @@ export default function App() {
               <div>{selectedRecord ? `${selectedRecord.start} to ${selectedRecord.end}` : "No production selected yet."}</div>
               <div>{selectedRecord?.date || ""}</div>
               <div>{selectedRecord ? `${selectedRecord.footage} ft` : ""}</div>
-              
             </div>
 
             <div style={reviewSection}>
@@ -1442,7 +1274,7 @@ const tableHeaderOld = {
 
 const tableRowOld = {
   display: "grid",
-  gridTemplateColumns: "1fr 1.3fr 1fr 0.8fr 0.7fr 1.3fr 1fr",
+  gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr",
   gap: 12,
   padding: 14,
   borderTop: "1px solid #e5e7eb",
@@ -1474,4 +1306,26 @@ const tableButton = {
   borderRadius: 10,
   padding: "8px 10px",
   cursor: "pointer",
+};
+
+const filterWrap = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 10,
+};
+
+const filterChip = {
+  padding: "8px 12px",
+  borderRadius: 999,
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: 13,
+};
+
+const selectedFilterChip = {
+  ...filterChip,
+  background: "#e0f2fe",
+  border: "1px solid #7dd3fc",
 };
