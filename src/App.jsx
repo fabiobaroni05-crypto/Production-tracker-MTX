@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from "react";
 
 const crewColors = {
@@ -25,6 +24,7 @@ const emptyProductionForm = {
   date: "",
   start: "",
   end: "",
+  footage: "",
   reference: "",
   comments: "",
 };
@@ -94,6 +94,8 @@ function getCrewSummary(records) {
 }
 
 function getGaps(project, records) {
+  if (project.trackingType !== "Station based") return [];
+
   const start = stationToFeet(project.startStation);
   const end = stationToFeet(project.endStation);
 
@@ -154,6 +156,68 @@ function getTicketStatusStyle(status) {
 }
 
 function ProductionLine({ project, records, selectedRecordId, onSelectRecord }) {
+  if (project.trackingType === "Footage based") {
+    const total = Math.max(Number(project.totalFootage || 0), 1);
+    let cursor = 0;
+
+    return (
+      <div>
+        <div style={lineLabelRow}>
+          <span>0 ft</span>
+          <span>{formatFeet(total)}</span>
+        </div>
+
+        <div style={lineTrack}>
+          {records.map((record) => {
+            const widthFeet = Number(record.footage || 0);
+            const left = (cursor / total) * 100;
+            const width = (widthFeet / total) * 100;
+            const selected = selectedRecordId === record.id;
+            const segment = (
+              <button
+                key={record.id}
+                type="button"
+                title={`${record.crew}: ${record.footage} ft`}
+                onClick={() => onSelectRecord(record)}
+                style={{
+                  position: "absolute",
+                  left: `${left}%`,
+                  width: `${Math.max(width, 1)}%`,
+                  top: 0,
+                  bottom: 0,
+                  border: selected ? "2px solid #111827" : "none",
+                  background: getCrewColor(record.crew),
+                  borderRadius: 999,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              />
+            );
+            cursor += widthFeet;
+            return segment;
+          })}
+        </div>
+
+        <div style={legendRow}>
+          {Object.keys(getCrewSummary(records)).map((crew) => (
+            <div key={crew} style={legendPill}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: getCrewColor(crew),
+                  display: "inline-block",
+                }}
+              />
+              {crew}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const start = stationToFeet(project.startStation);
   const end = stationToFeet(project.endStation);
   const total = Math.max(end - start, 1);
@@ -306,10 +370,10 @@ export default function App() {
       ? Math.max(stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation), 0)
       : Number(projectForm.totalFootage || 0);
 
-  const productionPreviewFootage = getProductionFootage(
-    productionForm.start,
-    productionForm.end
-  );
+  const productionPreviewFootage =
+    projectForm.trackingType === "Station based"
+      ? getProductionFootage(productionForm.start, productionForm.end)
+      : Number(productionForm.footage || 0);
 
   const saveProject = () => {
     const payload = {
@@ -321,6 +385,10 @@ export default function App() {
         projectForm.trackingType === "Station based"
           ? autoProjectTotal
           : Number(projectForm.totalFootage || 0),
+      startStation:
+        projectForm.trackingType === "Station based" ? projectForm.startStation : "00+00",
+      endStation:
+        projectForm.trackingType === "Station based" ? projectForm.endStation : "00+00",
     };
 
     setProjectForm(payload);
@@ -399,8 +467,13 @@ export default function App() {
       return;
     }
 
-    if (!productionForm.crew || !productionForm.date || !productionForm.start || !productionForm.end) {
-      alert("Fill crew, date, start station, and end station.");
+    if (
+      !productionForm.crew ||
+      !productionForm.date ||
+      (projectForm.trackingType === "Station based" && (!productionForm.start || !productionForm.end)) ||
+      (projectForm.trackingType === "Footage based" && !productionForm.footage)
+    ) {
+      alert("Fill the required fields before saving.");
       return;
     }
 
@@ -408,12 +481,19 @@ export default function App() {
     const existingAttachments =
       productionRecords.find((record) => record.id === editingRecordId)?.attachments || [];
 
+    const normalizedFootage =
+      projectForm.trackingType === "Station based"
+        ? getProductionFootage(productionForm.start, productionForm.end)
+        : Number(productionForm.footage || 0);
+
     const payload = {
       id: editingRecordId || Date.now(),
       projectId: selectedProjectId,
       ...productionForm,
       crew: cleanCrew,
-      footage: getProductionFootage(productionForm.start, productionForm.end),
+      start: projectForm.trackingType === "Station based" ? productionForm.start : "",
+      end: projectForm.trackingType === "Station based" ? productionForm.end : "",
+      footage: normalizedFootage,
       attachments: existingAttachments,
     };
 
@@ -450,8 +530,9 @@ export default function App() {
     setProductionForm({
       crew: record.crew,
       date: record.date,
-      start: record.start,
-      end: record.end,
+      start: record.start || "",
+      end: record.end || "",
+      footage: record.footage || "",
       reference: record.reference || "",
       comments: record.comments || "",
     });
@@ -593,10 +674,13 @@ export default function App() {
               <span style={metaPill}>Project: {displayProject?.name || "No project"}</span>
               <span style={metaPill}>Type: {displayProject?.trackingType}</span>
               <span style={metaPill}>Status: {displayProject?.status}</span>
-              <span style={metaPill}>
-                Stations: {displayProject?.startStation} to {displayProject?.endStation}
-              </span>
-              <span style={metaPill}>{formatFeet(progress.total)}</span>
+              {displayProject?.trackingType === "Station based" ? (
+                <span style={metaPill}>
+                  Stations: {displayProject?.startStation} to {displayProject?.endStation}
+                </span>
+              ) : (
+                <span style={metaPill}>Total: {formatFeet(progress.total)}</span>
+              )}
             </div>
 
             <div style={statsRow}>
@@ -642,13 +726,26 @@ export default function App() {
               </div>
               <div>
                 <div style={smallLabel}>Tracking type</div>
-                <select style={inputStyle} value={projectForm.trackingType} onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value })}>
+                <select
+                  style={inputStyle}
+                  value={projectForm.trackingType}
+                  onChange={(e) =>
+                    setProjectForm({
+                      ...projectForm,
+                      trackingType: e.target.value,
+                      startStation: e.target.value === "Station based" ? projectForm.startStation || "00+00" : "00+00",
+                      endStation: e.target.value === "Station based" ? projectForm.endStation || "00+00" : "00+00",
+                    })
+                  }
+                >
                   <option>Station based</option>
                   <option>Footage based</option>
                 </select>
               </div>
               <div>
-                <div style={smallLabel}>Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}</div>
+                <div style={smallLabel}>
+                  Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}
+                </div>
                 <input
                   style={{ ...inputStyle, background: projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff", color: projectForm.trackingType === "Station based" ? "#475569" : "#111827" }}
                   value={projectForm.trackingType === "Station based" ? autoProjectTotal : projectForm.totalFootage}
@@ -656,14 +753,20 @@ export default function App() {
                   onChange={(e) => setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })}
                 />
               </div>
-              <div>
-                <div style={smallLabel}>Project start station</div>
-                <input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} />
-              </div>
-              <div>
-                <div style={smallLabel}>Project end station</div>
-                <input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} />
-              </div>
+
+              {projectForm.trackingType === "Station based" && (
+                <>
+                  <div>
+                    <div style={smallLabel}>Project start station</div>
+                    <input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} />
+                  </div>
+                  <div>
+                    <div style={smallLabel}>Project end station</div>
+                    <input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} />
+                  </div>
+                </>
+              )}
+
               <div>
                 <div style={smallLabel}>Project status</div>
                 <select style={inputStyle} value={projectForm.status} onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}>
@@ -695,7 +798,9 @@ export default function App() {
           <div style={sectionCard}>
             <h2 style={{ marginTop: 0, textAlign: "center" }}>Add Section Record</h2>
             <p style={{ marginTop: 0, color: "#4b5563", fontSize: 14, textAlign: "center" }}>
-              Type a new crew name whenever you need. Once saved, that crew becomes available for this project.
+              {projectForm.trackingType === "Station based"
+                ? "Type a new crew name whenever you need. Once saved, that crew becomes available for this project."
+                : "For footage based projects, enter the crew and direct footage. The production line will fill cumulatively from left to right."}
             </p>
 
             <div style={formGrid2}>
@@ -720,20 +825,34 @@ export default function App() {
                 <input type="date" style={inputStyle} value={productionForm.date} onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })} />
               </div>
 
-              <div>
-                <div style={smallLabel}>Start station</div>
-                <input style={inputStyle} value={productionForm.start} onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })} />
-              </div>
+              {projectForm.trackingType === "Station based" ? (
+                <>
+                  <div>
+                    <div style={smallLabel}>Start station</div>
+                    <input style={inputStyle} value={productionForm.start} onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })} />
+                  </div>
 
-              <div>
-                <div style={smallLabel}>End station</div>
-                <input style={inputStyle} value={productionForm.end} onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })} />
-              </div>
+                  <div>
+                    <div style={smallLabel}>End station</div>
+                    <input style={inputStyle} value={productionForm.end} onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })} />
+                  </div>
 
-              <div>
-                <div style={smallLabel}>Footage (auto)</div>
-                <input style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }} value={productionPreviewFootage} readOnly />
-              </div>
+                  <div>
+                    <div style={smallLabel}>Footage (auto)</div>
+                    <input style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }} value={productionPreviewFootage} readOnly />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <div style={smallLabel}>Footage</div>
+                  <input
+                    style={inputStyle}
+                    value={productionForm.footage}
+                    onChange={(e) => setProductionForm({ ...productionForm, footage: e.target.value })}
+                    placeholder="Enter direct footage"
+                  />
+                </div>
+              )}
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Reference</div>
@@ -784,7 +903,7 @@ export default function App() {
             <div style={tableCard}>
               <div style={tableHeaderOld}>
                 <div>Crew</div>
-                <div>Range</div>
+                <div>{projectForm.trackingType === "Station based" ? "Range" : "Reference"}</div>
                 <div>Date</div>
                 <div>Feet</div>
                 <div>Attachments</div>
@@ -813,7 +932,7 @@ export default function App() {
                     />
                     {record.crew}
                   </div>
-                  <div>{record.start} to {record.end}</div>
+                  <div>{displayProject.trackingType === "Station based" ? `${record.start} to ${record.end}` : (record.reference || "—")}</div>
                   <div>{record.date}</div>
                   <div>{record.footage}</div>
 
@@ -993,7 +1112,13 @@ export default function App() {
 
             <div style={reviewSection}>
               <div style={{ fontWeight: 700, fontSize: 28 }}>{selectedRecord?.crew || "No crew selected"}</div>
-              <div>{selectedRecord ? `${selectedRecord.start} to ${selectedRecord.end}` : "No production selected yet."}</div>
+              <div>
+                {selectedRecord
+                  ? displayProject?.trackingType === "Station based"
+                    ? `${selectedRecord.start} to ${selectedRecord.end}`
+                    : `${selectedRecord.footage} ft recorded`
+                  : "No production selected yet."}
+              </div>
               <div>{selectedRecord?.date || ""}</div>
               <div>{selectedRecord ? `${selectedRecord.footage} ft` : ""}</div>
             </div>
@@ -1073,15 +1198,17 @@ export default function App() {
             )) : <div>No crews saved yet.</div>}
           </div>
 
-          <div style={reviewCard}>
-            <div style={reviewTitle}>Open Gaps</div>
-            {gaps.length ? gaps.map((gap, index) => (
-              <div key={index} style={gapRow}>
-                <strong>{formatStation(gap.start)} to {formatStation(gap.end)}</strong>
-                <div>{gap.end - gap.start} ft unfinished</div>
-              </div>
-            )) : <div>No gaps found.</div>}
-          </div>
+          {displayProject?.trackingType === "Station based" && (
+            <div style={reviewCard}>
+              <div style={reviewTitle}>Open Gaps</div>
+              {gaps.length ? gaps.map((gap, index) => (
+                <div key={index} style={gapRow}>
+                  <strong>{formatStation(gap.start)} to {formatStation(gap.end)}</strong>
+                  <div>{gap.end - gap.start} ft unfinished</div>
+                </div>
+              )) : <div>No gaps found.</div>}
+            </div>
+          )}
 
           <div style={reviewCard}>
             <div style={reviewTitle}>Ticket Readiness</div>
