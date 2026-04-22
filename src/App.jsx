@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "./supabaseClient";
 
 const crewColors = {
   MIGUEL: "#635bff",
@@ -17,6 +18,7 @@ const emptyProjectForm = {
   endStation: "22+19",
   status: "Active",
   comment: "",
+  crews: [],
 };
 
 const emptyProductionForm = {
@@ -40,9 +42,6 @@ const emptyTicketForm = {
 };
 
 const STORAGE_KEYS = {
-  projects: "production_tracker_projects",
-  selectedProjectId: "production_tracker_selected_project_id",
-  productionRecords: "production_tracker_production_records",
   ticketRecords: "production_tracker_ticket_records",
 };
 
@@ -55,6 +54,12 @@ function safeRead(key, fallback) {
   }
 }
 
+function isUuid(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}
 
 function stationToFeet(station) {
   if (!station) return 0;
@@ -152,9 +157,19 @@ function getDaysLeft(expirationDate) {
   today.setHours(0, 0, 0, 0);
   const exp = new Date(`${expirationDate}T00:00:00`);
   const diff = Math.round((exp - today) / 86400000);
-  if (diff < 0) return { text: `${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"} ago`, color: "#b91c1c" };
+  if (diff < 0) {
+    return {
+      text: `${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"} ago`,
+      color: "#b91c1c",
+    };
+  }
   if (diff === 0) return { text: "Expires today", color: "#b91c1c" };
-  if (diff <= 5) return { text: `${diff} day${diff === 1 ? "" : "s"} left`, color: "#b45309" };
+  if (diff <= 5) {
+    return {
+      text: `${diff} day${diff === 1 ? "" : "s"} left`,
+      color: "#b45309",
+    };
+  }
   return { text: `${diff} day${diff === 1 ? "" : "s"} left`, color: "#15803d" };
 }
 
@@ -258,57 +273,132 @@ function ProductionLine({ project, records }) {
 }
 
 export default function App() {
-  const defaultProjects = [
+  const defaultTicketRecords = [
     {
-      id: 1,
-      ...emptyProjectForm,
-      crews: ["MIGUEL", "FRANK", "NALDI", "YOYI"],
+      id: 201,
+      projectId: "local-demo-1",
+      areaSection: "",
+      ticketNumber: "123456789",
+      status: "Open",
+      pendingUtility: "",
+      expirationDate: "",
+      coverage: "",
+      notes: "",
+    },
+    {
+      id: 202,
+      projectId: "local-demo-1",
+      areaSection: "15+00 TO 20+00",
+      ticketNumber: "16868915",
+      status: "Pending",
+      pendingUtility: "",
+      expirationDate: "",
+      coverage: "",
+      notes: "",
     },
   ];
 
-  const defaultProductionRecords = [
-    { id: 101, projectId: 1, crew: "MIGUEL", date: "2026-04-06", start: "00+00", end: "03+50", footage: 350, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 102, projectId: 1, crew: "FRANK", date: "2026-04-15", start: "03+50", end: "06+00", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 103, projectId: 1, crew: "NALDI", date: "2026-04-05", start: "06+00", end: "07+50", footage: 150, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 104, projectId: 1, crew: "NALDI", date: "2026-04-08", start: "10+00", end: "12+50", footage: 250, reference: "", comments: "No comments added.", attachments: [] },
-    { id: 105, projectId: 1, crew: "YOYI", date: "2026-04-14", start: "12+50", end: "18+50", footage: 600, reference: "", comments: "No comments added.", attachments: [] },
-  ];
-
-  const defaultTicketRecords = [
-    { id: 201, projectId: 1, areaSection: "", ticketNumber: "123456789", status: "Open", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
-    { id: 202, projectId: 1, areaSection: "15+00 TO 20+00", ticketNumber: "16868915", status: "Pending", pendingUtility: "", expirationDate: "", coverage: "", notes: "" },
-  ];
-
-  const [projects, setProjects] = useState(() => safeRead(STORAGE_KEYS.projects, defaultProjects));
-  const [selectedProjectId, setSelectedProjectId] = useState(() => {
-    const saved = safeRead(STORAGE_KEYS.selectedProjectId, 1);
-    const savedProjects = safeRead(STORAGE_KEYS.projects, defaultProjects);
-    return savedProjects.some((project) => project.id === saved) ? saved : savedProjects[0].id;
-  });
-  const [projectForm, setProjectForm] = useState(() => {
-    const savedProjects = safeRead(STORAGE_KEYS.projects, defaultProjects);
-    const savedSelectedId = safeRead(STORAGE_KEYS.selectedProjectId, 1);
-    return savedProjects.find((project) => project.id === savedSelectedId) || savedProjects[0];
-  });
-
-  const [productionRecords, setProductionRecords] = useState(() =>
-    safeRead(STORAGE_KEYS.productionRecords, defaultProductionRecords)
-  );
-
+  const [projects, setProjects] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [projectForm, setProjectForm] = useState(emptyProjectForm);
+  const [productionRecords, setProductionRecords] = useState([]);
   const [ticketRecords, setTicketRecords] = useState(() =>
     safeRead(STORAGE_KEYS.ticketRecords, defaultTicketRecords)
   );
-
   const [ticketForm, setTicketForm] = useState(emptyTicketForm);
   const [editingTicketId, setEditingTicketId] = useState(null);
-
   const [productionForm, setProductionForm] = useState(emptyProductionForm);
   const [editingRecordId, setEditingRecordId] = useState(null);
-  const [selectedRecordId, setSelectedRecordId] = useState(103);
+  const [selectedRecordId, setSelectedRecordId] = useState(null);
   const [selectedCrews, setSelectedCrews] = useState([]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.ticketRecords, JSON.stringify(ticketRecords));
+  }, [ticketRecords]);
+
+  useEffect(() => {
+    const loadProjectsFromSupabase = async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error loading projects from Supabase:", error);
+        return;
+      }
+
+      const formattedProjects = (data || []).map((project) => ({
+        id: String(project.id),
+        name: project.name || "",
+        client: project.client || "",
+        trackingType: project.tracking_type || "Station based",
+        totalFootage: Number(project.total_feet || 0),
+        startStation: project.start_station || "00+00",
+        endStation: project.end_station || "00+00",
+        status: project.status || "Active",
+        comment: project.comment || "",
+        crews: [],
+      }));
+
+      if (formattedProjects.length) {
+        setProjects(formattedProjects);
+        setSelectedProjectId(formattedProjects[0].id);
+        setProjectForm(formattedProjects[0]);
+      } else {
+        const blankProject = {
+          id: null,
+          ...emptyProjectForm,
+          name: "New Project",
+          client: "",
+          startStation: "00+00",
+          endStation: "00+00",
+          totalFootage: 0,
+          comment: "",
+          crews: [],
+        };
+        setProjects([]);
+        setSelectedProjectId(null);
+        setProjectForm(blankProject);
+      }
+    };
+
+    loadProjectsFromSupabase();
+  }, []);
+
+  useEffect(() => {
+    const loadProductionRecordsFromSupabase = async () => {
+      const { data, error } = await supabase
+        .from("production_records")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error loading production records from Supabase:", error);
+        return;
+      }
+
+      const formattedRecords = (data || []).map((record) => ({
+        id: record.id,
+        projectId: String(record.project_id),
+        crew: record.crew || "",
+        date: record.work_date || "",
+        start: record.start_station || "",
+        end: record.end_station || "",
+        footage: Number(record.footage || 0),
+        reference: record.reference || "",
+        comments: record.comments || "",
+        attachments: [],
+      }));
+
+      setProductionRecords(formattedRecords);
+    };
+
+    loadProductionRecordsFromSupabase();
+  }, []);
+
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) || projects[0],
+    () => projects.find((project) => String(project.id) === String(selectedProjectId)) || null,
     [projects, selectedProjectId]
   );
 
@@ -316,70 +406,42 @@ export default function App() {
     () => ({
       ...(selectedProject || {}),
       ...(projectForm || {}),
-      crews: selectedProject?.crews || [],
+      crews: selectedProject?.crews || projectForm?.crews || [],
     }),
     [selectedProject, projectForm]
   );
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.projects, JSON.stringify(projects));
-  }, [projects]);
+  const projectRecords = useMemo(() => {
+    if (!selectedProjectId) return [];
+    return productionRecords.filter((record) => String(record.projectId) === String(selectedProjectId));
+  }, [productionRecords, selectedProjectId]);
+
+  const projectTickets = useMemo(() => {
+    if (!selectedProjectId) return [];
+    return ticketRecords.filter((ticket) => String(ticket.projectId) === String(selectedProjectId));
+  }, [ticketRecords, selectedProjectId]);
+
+  const selectedRecord = projectRecords.find((record) => record.id === selectedRecordId) || null;
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.selectedProjectId, JSON.stringify(selectedProjectId));
-  }, [selectedProjectId]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.productionRecords, JSON.stringify(productionRecords));
-  }, [productionRecords]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ticketRecords, JSON.stringify(ticketRecords));
-  }, [ticketRecords]);
-
-
-  const projectRecords = useMemo(
-    () => productionRecords.filter((record) => record.projectId === selectedProjectId),
-    [productionRecords, selectedProjectId]
-  );
-
-  const projectTickets = useMemo(
-    () => ticketRecords.filter((ticket) => ticket.projectId === selectedProjectId),
-    [ticketRecords, selectedProjectId]
-  );
-
-  const selectedRecord =
-    projectRecords.find((record) => record.id === selectedRecordId) || null;
-
-  useEffect(() => {
-    if (selectedProject) {
-      setProjectForm(selectedProject);
-    }
-  }, [selectedProjectId]);
-
+    if (selectedProject) setProjectForm(selectedProject);
+  }, [selectedProject]);
 
   const crewOptions = useMemo(() => {
     const names = new Set(selectedProject?.crews || []);
+    projectRecords.forEach((record) => names.add(normalizeCrewName(record.crew)));
     if (productionForm.crew && productionForm.crew.trim()) {
       names.add(normalizeCrewName(productionForm.crew));
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [selectedProject, productionForm.crew]);
+  }, [selectedProject, projectRecords, productionForm.crew]);
 
   const progress = useMemo(
     () => getProjectProgress(displayProject, projectRecords),
     [displayProject, projectRecords]
   );
-
-  const crewSummary = useMemo(
-    () => getCrewSummary(projectRecords),
-    [projectRecords]
-  );
-
-  const gaps = useMemo(
-    () => getGaps(displayProject, projectRecords),
-    [displayProject, projectRecords]
-  );
+  const crewSummary = useMemo(() => getCrewSummary(projectRecords), [projectRecords]);
+  const gaps = useMemo(() => getGaps(displayProject, projectRecords), [displayProject, projectRecords]);
 
   const filteredRecords = useMemo(() => {
     if (!selectedCrews.length) return projectRecords;
@@ -396,39 +458,134 @@ export default function App() {
       ? getProductionFootage(productionForm.start, productionForm.end)
       : Number(productionForm.footage || 0);
 
-  const saveProject = () => {
+  const saveProject = async () => {
     const payload = {
-      ...selectedProject,
-      ...projectForm,
-      id: selectedProjectId,
-      crews: selectedProject?.crews || [],
-      totalFootage:
+      name: projectForm.name || "New Project",
+      client: projectForm.client || "",
+      tracking_type: projectForm.trackingType || "Station based",
+      total_feet:
         projectForm.trackingType === "Station based"
-          ? autoProjectTotal
+          ? Math.max(stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation), 0)
           : Number(projectForm.totalFootage || 0),
-      startStation:
-        projectForm.trackingType === "Station based" ? projectForm.startStation : "00+00",
-      endStation:
-        projectForm.trackingType === "Station based" ? projectForm.endStation : "00+00",
+      start_station: projectForm.startStation || "00+00",
+      end_station: projectForm.endStation || "00+00",
+      status: projectForm.status || "Active",
+      comment: projectForm.comment || "",
     };
 
-    setProjectForm(payload);
-    setProjects((prev) =>
-      prev.map((project) => (project.id === selectedProjectId ? payload : project))
-    );
+    const dbId = isUuid(selectedProjectId) ? selectedProjectId : null;
+
+    try {
+      let data;
+      let error;
+
+      if (dbId) {
+        const response = await supabase
+          .from("projects")
+          .update(payload)
+          .eq("id", dbId)
+          .select()
+          .maybeSingle();
+        data = response.data;
+        error = response.error;
+      } else {
+        const response = await supabase.from("projects").insert(payload).select().single();
+        data = response.data;
+        error = response.error;
+      }
+
+      if (error) {
+        console.error("Error saving project to Supabase:", error);
+        alert("Could not save project. Check console.");
+        return;
+      }
+
+      if (!data) {
+        console.error("Save returned no row.");
+        alert("Save returned no row. Check console.");
+        return;
+      }
+
+      const savedProject = {
+        id: String(data.id),
+        name: data.name || "",
+        client: data.client || "",
+        trackingType: data.tracking_type || "Station based",
+        totalFootage: Number(data.total_feet || 0),
+        startStation: data.start_station || "00+00",
+        endStation: data.end_station || "00+00",
+        status: data.status || "Active",
+        comment: data.comment || "",
+        crews: selectedProject?.crews || [],
+      };
+
+      setProjects((prev) => {
+        const exists = prev.some((p) => String(p.id) === String(savedProject.id));
+        if (exists) {
+          return prev.map((p) => (String(p.id) === String(savedProject.id) ? savedProject : p));
+        }
+        return [savedProject, ...prev];
+      });
+
+      setSelectedProjectId(String(savedProject.id));
+      setProjectForm(savedProject);
+      console.log("Project saved to Supabase:", savedProject);
+    } catch (err) {
+      console.error("Unexpected save error:", err);
+      alert("Unexpected error while saving.");
+    }
   };
 
-  const deleteProject = () => {
-    const ok = window.confirm("Delete this project?");
-    if (!ok) return;
+const deleteProject = async () => {
+  const ok = window.confirm("Delete this project?");
+  if (!ok) return;
 
-    const remainingProjects = projects.filter((project) => project.id !== selectedProjectId);
+  const dbId = selectedProjectId;
+
+  try {
+     
+    // 🔴 FIRST: delete files
+    const { error: filesError } = await supabase
+     .from("files")
+     .delete()
+     .eq("project_id", dbId);
+
+    if (filesError) {
+      console.error("Error deleting files:", filesError);
+      alert("Failed to delete linked files.");
+      return;
+    }
+    const { error: productionError } = await supabase
+      .from("production_records")
+      .delete()
+      .eq("project_id", dbId);
+
+    if (productionError) {
+      console.error("Error deleting production records:", productionError);
+      alert("Failed to delete linked production records.");
+      return;
+    }
+
+    const { error: projectError } = await supabase
+      .from("projects")
+      .delete()
+      .eq("id", dbId);
+
+    if (projectError) {
+      console.error("Error deleting project:", projectError);
+      alert("Failed to delete project.");
+      return;
+    }
+
+    const remainingProjects = projects.filter(
+      (project) => String(project.id) !== String(selectedProjectId)
+    );
 
     setProductionRecords((prev) =>
-      prev.filter((record) => record.projectId !== selectedProjectId)
+      prev.filter((record) => String(record.projectId) !== String(selectedProjectId))
     );
     setTicketRecords((prev) =>
-      prev.filter((ticket) => ticket.projectId !== selectedProjectId)
+      prev.filter((ticket) => String(ticket.projectId) !== String(selectedProjectId))
     );
     setSelectedCrews([]);
     setSelectedRecordId(null);
@@ -440,58 +597,64 @@ export default function App() {
     if (remainingProjects.length) {
       const nextProject = remainingProjects[0];
       setProjects(remainingProjects);
-      setSelectedProjectId(nextProject.id);
+      setSelectedProjectId(String(nextProject.id));
       setProjectForm(nextProject);
     } else {
-      const id = Date.now();
       const fallbackProject = {
-        id,
+        id: null,
         ...emptyProjectForm,
         name: "New Project",
         client: "",
+        startStation: "00+00",
         endStation: "00+00",
+        totalFootage: 0,
+        comment: "",
         crews: [],
       };
-      setProjects([fallbackProject]);
-      setSelectedProjectId(id);
+      setProjects([]);
+      setSelectedProjectId(null);
       setProjectForm(fallbackProject);
     }
+  } catch (err) {
+    console.error("Unexpected delete error:", err);
+    alert("Unexpected error while deleting project.");
+  }
+};
+
+const newProject = () => {
+  const project = {
+    id: null,
+    ...emptyProjectForm,
+    name: "New Project",
+    client: "",
+    startStation: "00+00",
+    endStation: "00+00",
+    totalFootage: 0,
+    comment: "",
+    crews: [],
   };
 
-  const newProject = () => {
-    const id = Date.now();
-    const project = {
-      id,
-      ...emptyProjectForm,
-      name: "New Project",
-      client: "",
-      startStation: "00+00",
-      endStation: "00+00",
-      totalFootage: 0,
-      comment: "",
-      crews: [],
-    };
-    setProjects((prev) => [project, ...prev]);
-    setSelectedProjectId(id);
-    setProjectForm(project);
-    setSelectedRecordId(null);
-    setSelectedCrews([]);
-    setEditingRecordId(null);
-    setEditingTicketId(null);
-    setProductionForm(emptyProductionForm);
-    setTicketForm(emptyTicketForm);
-  };
+  setSelectedProjectId(null);
+  setProjectForm(project);
+  setSelectedRecordId(null);
+  setSelectedCrews([]);
+  setEditingRecordId(null);
+  setEditingTicketId(null);
+  setProductionForm(emptyProductionForm);
+  setTicketForm(emptyTicketForm);
+};
 
-  const handleSaveProduction = () => {
+  const handleSaveProduction = async () => {
     if (!selectedProjectId) {
-      alert("Select a project first.");
+      alert("Save the project first.");
       return;
     }
 
     if (
       !productionForm.crew ||
       !productionForm.date ||
-      (projectForm.trackingType === "Station based" && (!productionForm.start || !productionForm.end)) ||
+      (projectForm.trackingType === "Station based" &&
+        (!productionForm.start || !productionForm.end)) ||
       (projectForm.trackingType === "Footage based" && !productionForm.footage)
     ) {
       alert("Fill the required fields before saving.");
@@ -499,8 +662,6 @@ export default function App() {
     }
 
     const cleanCrew = normalizeCrewName(productionForm.crew);
-    const existingAttachments =
-      productionRecords.find((record) => record.id === editingRecordId)?.attachments || [];
 
     const normalizedFootage =
       projectForm.trackingType === "Station based"
@@ -508,63 +669,122 @@ export default function App() {
         : Number(productionForm.footage || 0);
 
     const payload = {
-      id: editingRecordId || Date.now(),
-      projectId: selectedProjectId,
-      ...productionForm,
+      project_id: selectedProjectId,
       crew: cleanCrew,
-      start: projectForm.trackingType === "Station based" ? productionForm.start : "",
-      end: projectForm.trackingType === "Station based" ? productionForm.end : "",
+      work_date: productionForm.date,
+      start_station:
+        projectForm.trackingType === "Station based" ? productionForm.start : null,
+      end_station:
+        projectForm.trackingType === "Station based" ? productionForm.end : null,
       footage: normalizedFootage,
-      attachments: existingAttachments,
+      reference: productionForm.reference || "",
+      comments: productionForm.comments || "",
     };
 
-    if (editingRecordId) {
-      setProductionRecords((prev) =>
-        prev.map((record) => (record.id === editingRecordId ? payload : record))
+    try {
+      let data;
+      let error;
+
+      if (editingRecordId) {
+        const response = await supabase
+          .from("production_records")
+          .update(payload)
+          .eq("id", editingRecordId)
+          .select()
+          .single();
+
+        data = response.data;
+        error = response.error;
+      } else {
+        const response = await supabase
+          .from("production_records")
+          .insert(payload)
+          .select()
+          .single();
+
+        data = response.data;
+        error = response.error;
+      }
+
+      if (error) {
+        console.error("Error saving production record:", error);
+        alert("Could not save production record. Check console.");
+        return;
+      }
+
+      const savedRecord = {
+        id: data.id,
+        projectId: String(data.project_id),
+        crew: data.crew || "",
+        date: data.work_date || "",
+        start: data.start_station || "",
+        end: data.end_station || "",
+        footage: Number(data.footage || 0),
+        reference: data.reference || "",
+        comments: data.comments || "",
+        attachments:
+          productionRecords.find((record) => record.id === editingRecordId)?.attachments || [],
+      };
+
+      if (editingRecordId) {
+        setProductionRecords((prev) =>
+          prev.map((record) => (record.id === editingRecordId ? savedRecord : record))
+        );
+        setSelectedRecordId(editingRecordId);
+      } else {
+        setProductionRecords((prev) => [...prev, savedRecord]);
+        setSelectedRecordId(savedRecord.id);
+      }
+
+      setProjects((prev) =>
+        prev.map((project) =>
+          String(project.id) === String(selectedProjectId)
+            ? {
+                ...project,
+                crews: project.crews?.includes(cleanCrew)
+                  ? project.crews
+                  : [...(project.crews || []), cleanCrew].sort((a, b) =>
+                      a.localeCompare(b)
+                    ),
+              }
+            : project
+        )
       );
-      setSelectedRecordId(editingRecordId);
-    } else {
-      setProductionRecords((prev) => [...prev, payload]);
-      setSelectedRecordId(payload.id);
+
+      setProjectForm((prev) => ({
+        ...prev,
+        crews: prev.crews?.includes(cleanCrew)
+          ? prev.crews
+          : [...(prev.crews || []), cleanCrew].sort((a, b) => a.localeCompare(b)),
+      }));
+
+      setProductionForm(emptyProductionForm);
+      setEditingRecordId(null);
+    } catch (err) {
+      console.error("Unexpected production save error:", err);
+      alert("Unexpected error while saving production record.");
     }
-
-    setProjects((prev) =>
-      prev.map((project) =>
-        project.id === selectedProjectId
-          ? {
-              ...project,
-              crews: project.crews?.includes(cleanCrew)
-                ? project.crews
-                : [...(project.crews || []), cleanCrew].sort((a, b) => a.localeCompare(b)),
-            }
-          : project
-      )
-    );
-
-    setProductionForm(emptyProductionForm);
-    setEditingRecordId(null);
   };
 
-  const handleEditProduction = (record) => {
-    setEditingRecordId(record.id);
-    setSelectedRecordId(record.id);
-    setProductionForm({
-      crew: record.crew,
-      date: record.date,
-      start: record.start || "",
-      end: record.end || "",
-      footage: record.footage || "",
-      reference: record.reference || "",
-      comments: record.comments || "",
-    });
-  };
-
-  const handleDeleteProduction = (id) => {
+  const handleDeleteProduction = async (id) => {
     const ok = window.confirm("Delete this production row?");
     if (!ok) return;
 
+    const { error } = await supabase
+      .from("production_records")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting production record:", error);
+      alert("Could not delete production record.");
+      return;
+    }
+
     setProductionRecords((prev) => prev.filter((record) => record.id !== id));
+
     if (selectedRecordId === id) setSelectedRecordId(null);
+
     if (editingRecordId === id) {
       setEditingRecordId(null);
       setProductionForm(emptyProductionForm);
@@ -572,10 +792,7 @@ export default function App() {
   };
 
   const handleUploadFile = (recordId, files) => {
-    const safeFiles = Array.from(files || []);
-    if (!safeFiles.length) return;
-
-    const newFiles = safeFiles.map((file) => ({
+    const uploaded = Array.from(files || []).map((file) => ({
       name: file.name,
       url: URL.createObjectURL(file),
     }));
@@ -583,7 +800,10 @@ export default function App() {
     setProductionRecords((prev) =>
       prev.map((record) =>
         record.id === recordId
-          ? { ...record, attachments: [...(record.attachments || []), ...newFiles] }
+          ? {
+              ...record,
+              attachments: [...(record.attachments || []), ...uploaded],
+            }
           : record
       )
     );
@@ -591,21 +811,23 @@ export default function App() {
 
   const saveTicket = () => {
     if (!selectedProjectId) {
-      alert("Select a project first.");
+      alert("Save the project first.");
       return;
     }
 
-    if (!ticketForm.ticketNumber && !ticketForm.areaSection) {
-      alert("Add at least ticket number or area / section.");
+    if (!ticketForm.ticketNumber) {
+      alert("Add the ticket number.");
       return;
     }
 
-    const payload = { id: editingTicketId || Date.now(), projectId: selectedProjectId, ...ticketForm };
+    const payload = {
+      id: editingTicketId || Date.now(),
+      projectId: String(selectedProjectId),
+      ...ticketForm,
+    };
 
     if (editingTicketId) {
-      setTicketRecords((prev) =>
-        prev.map((ticket) => (ticket.id === editingTicketId ? payload : ticket))
-      );
+      setTicketRecords((prev) => prev.map((ticket) => (ticket.id === editingTicketId ? payload : ticket)));
     } else {
       setTicketRecords((prev) => [...prev, payload]);
     }
@@ -655,8 +877,16 @@ export default function App() {
             </p>
 
             <div style={actionRow}>
-              <button style={darkBtn}>Save Current Project</button>
-              <button style={lightBtn}>Reset All Local Data</button>
+              <button style={darkBtn} onClick={saveProject}>Save Current Project</button>
+              <button
+                style={lightBtn}
+                onClick={() => {
+                  localStorage.clear();
+                  window.location.reload();
+                }}
+              >
+                Reset All Local Data
+              </button>
             </div>
 
             <div style={{ ...actionRow, marginTop: 18 }}>
@@ -671,9 +901,9 @@ export default function App() {
                 style={inputStyle}
                 value={selectedProjectId || ""}
                 onChange={(e) => {
-                  const id = Number(e.target.value);
-                  const found = projects.find((project) => project.id === id);
-                  setSelectedProjectId(id);
+                  const id = e.target.value;
+                  const found = projects.find((project) => String(project.id) === String(id));
+                  setSelectedProjectId(String(id));
                   setSelectedCrews([]);
                   setSelectedRecordId(null);
                   setEditingRecordId(null);
@@ -684,7 +914,7 @@ export default function App() {
                 }}
               >
                 {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
+                  <option key={String(project.id)} value={String(project.id)}>
                     {project.name} — {project.client || "No client"}
                   </option>
                 ))}
@@ -705,69 +935,32 @@ export default function App() {
             </div>
 
             <div style={statsRow}>
-              <div style={statBox}>
-                <div style={statLabel}>Finished footage</div>
-                <div style={statValue}>{progress.finished} ft</div>
-              </div>
-              <div style={statBox}>
-                <div style={statLabel}>Remaining footage</div>
-                <div style={statValue}>{progress.remaining} ft</div>
-              </div>
-              <div style={statBox}>
-                <div style={statLabel}>Project progress</div>
-                <div style={statValue}>{progress.percent}%</div>
-              </div>
+              <div style={statBox}><div style={statLabel}>Finished footage</div><div style={statValue}>{progress.finished} ft</div></div>
+              <div style={statBox}><div style={statLabel}>Remaining footage</div><div style={statValue}>{progress.remaining} ft</div></div>
+              <div style={statBox}><div style={statLabel}>Project progress</div><div style={statValue}>{progress.percent}%</div></div>
             </div>
 
-            <div style={statusNoteBox}>
-              <strong>Status note:</strong> {displayProject?.comment || "No project comment added."}
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <ProductionLine
-                project={displayProject}
-                records={projectRecords}
-              />
-            </div>
+            <div style={statusNoteBox}><strong>Status note:</strong> {displayProject?.comment || "No project comment added."}</div>
+            <div style={{ marginTop: 16 }}><ProductionLine project={displayProject} records={projectRecords} /></div>
           </div>
 
           <div style={sectionCard}>
             <h2 style={{ marginTop: 0 }}>Project Setup</h2>
-
             <div style={formGrid2}>
-              <div>
-                <div style={smallLabel}>Project name</div>
-                <input style={inputStyle} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} />
-              </div>
-              <div>
-                <div style={smallLabel}>Client</div>
-                <input style={inputStyle} value={projectForm.client} onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })} />
-              </div>
+              <div><div style={smallLabel}>Project name</div><input style={inputStyle} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} /></div>
+              <div><div style={smallLabel}>Client</div><input style={inputStyle} value={projectForm.client} onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })} /></div>
               <div>
                 <div style={smallLabel}>Tracking type</div>
-                <select
-                  style={inputStyle}
-                  value={projectForm.trackingType}
-                  onChange={(e) =>
-                    setProjectForm({
-                      ...projectForm,
-                      trackingType: e.target.value,
-                      startStation: e.target.value === "Station based" ? projectForm.startStation || "00+00" : "00+00",
-                      endStation: e.target.value === "Station based" ? projectForm.endStation || "00+00" : "00+00",
-                    })
-                  }
-                >
+                <select style={inputStyle} value={projectForm.trackingType} onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value, startStation: e.target.value === "Station based" ? projectForm.startStation || "00+00" : "00+00", endStation: e.target.value === "Station based" ? projectForm.endStation || "00+00" : "00+00" })}>
                   <option>Station based</option>
                   <option>Footage based</option>
                 </select>
               </div>
               <div>
-                <div style={smallLabel}>
-                  Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}
-                </div>
+                <div style={smallLabel}>Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}</div>
                 <input
                   style={{ ...inputStyle, background: projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff", color: projectForm.trackingType === "Station based" ? "#475569" : "#111827" }}
-                  value={projectForm.trackingType === "Station based" ? autoProjectTotal : projectForm.totalFootage}
+                  value={projectForm.trackingType === "Station based" ? autoProjectTotal : (projectForm.totalFootage ?? 0)}
                   readOnly={projectForm.trackingType === "Station based"}
                   onChange={(e) => setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })}
                 />
@@ -775,14 +968,8 @@ export default function App() {
 
               {projectForm.trackingType === "Station based" && (
                 <>
-                  <div>
-                    <div style={smallLabel}>Project start station</div>
-                    <input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} />
-                  </div>
-                  <div>
-                    <div style={smallLabel}>Project end station</div>
-                    <input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} />
-                  </div>
+                  <div><div style={smallLabel}>Project start station</div><input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} /></div>
+                  <div><div style={smallLabel}>Project end station</div><input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} /></div>
                 </>
               )}
 
@@ -797,11 +984,7 @@ export default function App() {
               </div>
             </div>
 
-            {projectForm.trackingType === "Station based" && (
-              <div style={helperNote}>
-                Total footage is protected and calculated automatically from start station and end station.
-              </div>
-            )}
+            {projectForm.trackingType === "Station based" && <div style={helperNote}>Total footage is protected and calculated automatically from start station and end station.</div>}
 
             <div style={{ marginTop: 14 }}>
               <div style={smallLabel}>Project comment / hold note</div>
@@ -810,7 +993,7 @@ export default function App() {
 
             <div style={{ ...actionRow, marginTop: 14 }}>
               <button style={primaryBtn} onClick={saveProject}>Update project</button>
-              <button style={lightBtn} onClick={() => setProjectForm(selectedProject)}>Clear form</button>
+              <button style={lightBtn} onClick={() => setProjectForm(selectedProject || emptyProjectForm)}>Clear form</button>
             </div>
           </div>
 
@@ -825,100 +1008,45 @@ export default function App() {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Crew</div>
-                <input
-                  list="crew-options"
-                  style={inputStyle}
-                  value={productionForm.crew}
-                  onChange={(e) => setProductionForm({ ...productionForm, crew: e.target.value })}
-                  placeholder="Type or select crew"
-                />
+                <input list="crew-options" style={inputStyle} value={productionForm.crew} onChange={(e) => setProductionForm({ ...productionForm, crew: e.target.value })} placeholder="Type or select crew" />
                 <datalist id="crew-options">
-                  {crewOptions.map((crew) => (
-                    <option key={crew} value={crew} />
-                  ))}
+                  {crewOptions.map((crew) => <option key={crew} value={crew} />)}
                 </datalist>
               </div>
-
-              <div>
-                <div style={smallLabel}>Date</div>
-                <input type="date" style={inputStyle} value={productionForm.date} onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })} />
-              </div>
+              <div><div style={smallLabel}>Date</div><input type="date" style={inputStyle} value={productionForm.date} onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })} /></div>
 
               {projectForm.trackingType === "Station based" ? (
                 <>
-                  <div>
-                    <div style={smallLabel}>Start station</div>
-                    <input style={inputStyle} value={productionForm.start} onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })} />
-                  </div>
-
-                  <div>
-                    <div style={smallLabel}>End station</div>
-                    <input style={inputStyle} value={productionForm.end} onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })} />
-                  </div>
-
-                  <div>
-                    <div style={smallLabel}>Footage (auto)</div>
-                    <input style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }} value={productionPreviewFootage} readOnly />
-                  </div>
+                  <div><div style={smallLabel}>Start station</div><input style={inputStyle} value={productionForm.start} onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })} /></div>
+                  <div><div style={smallLabel}>End station</div><input style={inputStyle} value={productionForm.end} onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })} /></div>
+                  <div><div style={smallLabel}>Footage (auto)</div><input style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }} value={productionPreviewFootage ?? 0} readOnly /></div>
                 </>
               ) : (
-                <div>
-                  <div style={smallLabel}>Footage</div>
-                  <input
-                    style={inputStyle}
-                    value={productionForm.footage}
-                    onChange={(e) => setProductionForm({ ...productionForm, footage: e.target.value })}
-                    placeholder="Enter direct footage"
-                  />
-                </div>
+                <div><div style={smallLabel}>Footage</div><input style={inputStyle} value={productionForm.footage ?? 0} onChange={(e) => setProductionForm({ ...productionForm, footage: e.target.value })} placeholder="Enter direct footage" /></div>
               )}
 
-              <div style={{ gridColumn: "1 / -1" }}>
-                <div style={smallLabel}>Reference</div>
-                <input style={inputStyle} value={productionForm.reference} onChange={(e) => setProductionForm({ ...productionForm, reference: e.target.value })} />
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <div style={smallLabel}>Comments</div>
-                <textarea style={{ ...inputStyle, minHeight: 90 }} value={productionForm.comments} onChange={(e) => setProductionForm({ ...productionForm, comments: e.target.value })} />
-              </div>
+              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Reference</div><input style={inputStyle} value={productionForm.reference} onChange={(e) => setProductionForm({ ...productionForm, reference: e.target.value })} /></div>
+              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Comments</div><textarea style={{ ...inputStyle, minHeight: 90 }} value={productionForm.comments} onChange={(e) => setProductionForm({ ...productionForm, comments: e.target.value })} /></div>
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
-              <button style={primaryBtn} onClick={handleSaveProduction}>
-                {editingRecordId ? "Update Section" : "Save Section"}
-              </button>
-              <button style={lightBtn} onClick={() => { setProductionForm(emptyProductionForm); setEditingRecordId(null); }}>
-                Clear
-              </button>
+              <button style={primaryBtn} onClick={handleSaveProduction}>{editingRecordId ? "Update Section" : "Save Section"}</button>
+              <button style={lightBtn} onClick={() => { setProductionForm(emptyProductionForm); setEditingRecordId(null); }}>Clear</button>
             </div>
           </div>
 
           <div style={sectionCard}>
             <div style={smallLabel}>Filter production by crew</div>
             <div style={filterWrap}>
-              <button
-                type="button"
-                style={!selectedCrews.length ? selectedFilterChip : filterChip}
-                onClick={() => setSelectedCrews([])}
-              >
-                All crews
-              </button>
-
+              <button type="button" style={!selectedCrews.length ? selectedFilterChip : filterChip} onClick={() => setSelectedCrews([])}>All crews</button>
               {crewOptions.map((crew) => (
-                <button
-                  key={crew}
-                  type="button"
-                  style={selectedCrews.includes(crew) ? selectedFilterChip : filterChip}
-                  onClick={() => toggleCrewFilter(crew)}
-                >
+                <button key={crew} type="button" style={selectedCrews.includes(crew) ? selectedFilterChip : filterChip} onClick={() => toggleCrewFilter(crew)}>
                   {crew}
                 </button>
               ))}
             </div>
 
             <h2 style={{ marginTop: 24, marginBottom: 8 }}>Saved Section Records</h2>
-
             <div style={tableCard}>
               <div style={tableHeaderOld}>
                 <div>Crew</div>
@@ -930,156 +1058,63 @@ export default function App() {
               </div>
 
               {filteredRecords.map((record) => (
-                <div
-                  key={record.id}
-                  onClick={() => setSelectedRecordId(record.id)}
-                  style={{
-                    ...tableRowOld,
-                    background: selectedRecordId === record.id ? "#f8fafc" : "#fff",
-                    cursor: "pointer",
-                  }}
-                >
+                <div key={record.id} onClick={() => setSelectedRecordId(record.id)} style={{ ...tableRowOld, background: selectedRecordId === record.id ? "#f8fafc" : "#fff", cursor: "pointer" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 999,
-                        background: getCrewColor(record.crew),
-                        display: "inline-block",
-                      }}
-                    />
+                    <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(record.crew), display: "inline-block" }} />
                     {record.crew}
                   </div>
                   <div>{displayProject.trackingType === "Station based" ? `${record.start} to ${record.end}` : (record.reference || "—")}</div>
                   <div>{record.date}</div>
                   <div>{record.footage}</div>
-
                   <div>
                     {record.attachments?.length ? (
                       <div style={{ display: "grid", gap: 6 }}>
                         {record.attachments.map((file, index) => (
                           <div key={index} style={{ fontSize: 12, lineHeight: 1.35 }}>
                             <div style={{ color: "#334155" }}>{file.name}</div>
-                            <a
-                              href={file.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ color: "#2563eb", textDecoration: "none" }}
-                            >
-                              Open
-                            </a>
+                            <a href={file.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: "#2563eb", textDecoration: "none" }}>Open</a>
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>No files</div>
-                    )}
+                    ) : <div style={{ fontSize: 12, color: "#6b7280" }}>No files</div>}
 
                     <label style={{ ...uploadButton, marginTop: 8 }}>
                       Attach bore log
-                      <input
-                        type="file"
-                        multiple
-                        style={{ display: "none" }}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          handleUploadFile(record.id, e.target.files);
-                        }}
-                      />
+                      <input type="file" multiple style={{ display: "none" }} onChange={(e) => { e.stopPropagation(); handleUploadFile(record.id, e.target.files); }} />
                     </label>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleEditProduction(record); }}>
-                      Edit
-                    </button>
-                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleDeleteProduction(record.id); }}>
-                      Delete
-                    </button>
+                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleEditProduction(record); }}>Edit</button>
+                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleDeleteProduction(record.id); }}>Delete</button>
                   </div>
                 </div>
               ))}
 
-              {!filteredRecords.length && (
-                <div style={{ padding: 18, color: "#64748b" }}>No production saved yet for this filter.</div>
-              )}
+              {!filteredRecords.length && <div style={{ padding: 18, color: "#64748b" }}>No production saved yet for this filter.</div>}
             </div>
 
             <h2 style={{ marginTop: 28, textAlign: "left", marginBottom: 6 }}>811 Ticket Control</h2>
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 14 }}>
-              Track ticket readiness, coverage, pending utilities, and what area each ticket covers for supervisor visibility.
-            </div>
+            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 14 }}>Track ticket readiness, coverage, pending utilities, and what area each ticket covers for supervisor visibility.</div>
 
             <div style={formGrid2}>
-              <div>
-                <div style={smallLabel}>Area / Section</div>
-                <input style={inputStyle} value={ticketForm.areaSection} onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })} placeholder="Area 5, North block, Section B, etc." />
-              </div>
-
-              <div>
-                <div style={smallLabel}>Ticket number</div>
-                <input style={inputStyle} value={ticketForm.ticketNumber} onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })} placeholder="Sunshine 811 ticket number" />
-              </div>
-
-              <div>
-                <div style={smallLabel}>Status</div>
-                <select style={inputStyle} value={ticketForm.status} onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}>
-                  <option>Open</option>
-                  <option>Pending</option>
-                  <option>Clear</option>
-                  <option>Expired</option>
-                </select>
-              </div>
-
-              <div>
-                <div style={smallLabel}>Pending utility</div>
-                <input style={inputStyle} value={ticketForm.pendingUtility} onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })} placeholder="FPL, Water, Gas, Comcast, etc." />
-              </div>
-
-              <div>
-                <div style={smallLabel}>Expiration date</div>
-                <input type="date" style={inputStyle} value={ticketForm.expirationDate} onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })} />
-              </div>
-
-              <div>
-                <div style={smallLabel}>Days left</div>
-                <input style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }} value={getDaysLeft(ticketForm.expirationDate).text} readOnly />
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <div style={smallLabel}>Coverage / Description</div>
-                <input style={inputStyle} value={ticketForm.coverage} onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })} placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc." />
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <div style={smallLabel}>Notes</div>
-                <textarea style={{ ...inputStyle, minHeight: 100 }} value={ticketForm.notes} onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })} placeholder="Anything your supervisor should know about this ticket" />
-              </div>
+              <div><div style={smallLabel}>Area / Section</div><input style={inputStyle} value={ticketForm.areaSection} onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })} placeholder="Area 5, North block, Section B, etc." /></div>
+              <div><div style={smallLabel}>Ticket number</div><input style={inputStyle} value={ticketForm.ticketNumber} onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })} placeholder="Sunshine 811 ticket number" /></div>
+              <div><div style={smallLabel}>Status</div><select style={inputStyle} value={ticketForm.status} onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}><option>Open</option><option>Pending</option><option>Clear</option><option>Expired</option></select></div>
+              <div><div style={smallLabel}>Pending utility</div><input style={inputStyle} value={ticketForm.pendingUtility} onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })} placeholder="FPL, Water, Gas, Comcast, etc." /></div>
+              <div><div style={smallLabel}>Expiration date</div><input type="date" style={inputStyle} value={ticketForm.expirationDate} onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })} /></div>
+              <div><div style={smallLabel}>Days left</div><input style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }} value={getDaysLeft(ticketForm.expirationDate).text} readOnly /></div>
+              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Coverage / Description</div><input style={inputStyle} value={ticketForm.coverage} onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })} placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc." /></div>
+              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Notes</div><textarea style={{ ...inputStyle, minHeight: 100 }} value={ticketForm.notes} onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })} placeholder="Anything your supervisor should know about this ticket" /></div>
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
-              <button style={primaryBtn} onClick={saveTicket}>
-                {editingTicketId ? "Update Ticket" : "Save Ticket"}
-              </button>
-              <button style={lightBtn} onClick={() => { setTicketForm(emptyTicketForm); setEditingTicketId(null); }}>
-                Clear Ticket Form
-              </button>
+              <button style={primaryBtn} onClick={saveTicket}>{editingTicketId ? "Update Ticket" : "Save Ticket"}</button>
+              <button style={lightBtn} onClick={() => { setTicketForm(emptyTicketForm); setEditingTicketId(null); }}>Clear Ticket Form</button>
             </div>
 
             <h2 style={{ marginTop: 24, marginBottom: 8 }}>Saved Tickets</h2>
             <div style={tableCard}>
-              <div style={tableHeaderTickets}>
-                <div>Area</div>
-                <div>Ticket</div>
-                <div>Status</div>
-                <div>Pending utility</div>
-                <div>Expiration</div>
-                <div>Days left</div>
-                <div>Coverage</div>
-                <div>Actions</div>
-              </div>
-
+              <div style={tableHeaderTickets}><div>Area</div><div>Ticket</div><div>Status</div><div>Pending utility</div><div>Expiration</div><div>Days left</div><div>Coverage</div><div>Actions</div></div>
               {projectTickets.map((ticket) => {
                 const daysLeft = getDaysLeft(ticket.expirationDate);
                 const ticketStatus = getTicketStatusStyle(ticket.status);
@@ -1087,71 +1122,34 @@ export default function App() {
                   <div key={ticket.id} style={tableRowTickets}>
                     <div>{ticket.areaSection || "—"}</div>
                     <div>{ticket.ticketNumber || "—"}</div>
-                    <div>
-                      <span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>
-                        {ticket.status}
-                      </span>
-                    </div>
+                    <div><span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>{ticket.status}</span></div>
                     <div>{ticket.pendingUtility || "—"}</div>
                     <div>{ticket.expirationDate || "—"}</div>
                     <div style={{ color: daysLeft.color }}>{daysLeft.text}</div>
                     <div>{ticket.coverage || "—"}</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button style={tableButton} onClick={() => editTicket(ticket)}>Edit</button>
-                      <button style={tableButton} onClick={() => deleteTicket(ticket.id)}>Delete</button>
-                    </div>
+                    <div style={{ display: "flex", gap: 8 }}><button style={tableButton} onClick={() => editTicket(ticket)}>Edit</button><button style={tableButton} onClick={() => deleteTicket(ticket.id)}>Delete</button></div>
                   </div>
                 );
               })}
-
-              {!projectTickets.length && (
-                <div style={{ padding: 18, color: "#64748b" }}>No tickets saved yet for this project.</div>
-              )}
+              {!projectTickets.length && <div style={{ padding: 18, color: "#64748b" }}>No tickets saved yet for this project.</div>}
             </div>
           </div>
         </div>
 
         <div style={reviewPanel}>
-          <div style={reviewHeaderCard}>
-            <h2 style={{ marginTop: 0, marginBottom: 0 }}>Project Review</h2>
-          </div>
-
+          <div style={reviewHeaderCard}><h2 style={{ marginTop: 0, marginBottom: 0 }}>Project Review</h2></div>
           <div style={reviewCard}>
             <div style={reviewTitle}>Project Overview</div>
-
-            <div style={reviewSection}>
-              <div style={bigLabel}>Project status</div>
-              <span style={statusBadge}>{displayProject?.status || "Active"}</span>
-            </div>
-
-            <div style={reviewSection}>
-              <div style={bigLabel}>Project comment</div>
-              <div style={smallCommentText}>{displayProject?.comment || "No project comment added."}</div>
-            </div>
-
+            <div style={reviewSection}><div style={bigLabel}>Project status</div><span style={statusBadge}>{displayProject?.status || "Active"}</span></div>
+            <div style={reviewSection}><div style={bigLabel}>Project comment</div><div style={smallCommentText}>{displayProject?.comment || "No project comment added."}</div></div>
             <div style={reviewSection}>
               <div style={{ fontWeight: 700, fontSize: 28 }}>{selectedRecord?.crew || "No crew selected"}</div>
-              <div>
-                {selectedRecord
-                  ? displayProject?.trackingType === "Station based"
-                    ? `${selectedRecord.start} to ${selectedRecord.end}`
-                    : `${selectedRecord.footage} ft recorded`
-                  : "No production selected yet."}
-              </div>
+              <div>{selectedRecord ? displayProject?.trackingType === "Station based" ? `${selectedRecord.start} to ${selectedRecord.end}` : `${selectedRecord.footage} ft recorded` : "No production selected yet."}</div>
               <div>{selectedRecord?.date || ""}</div>
               <div>{selectedRecord ? `${selectedRecord.footage} ft` : ""}</div>
             </div>
-
-            <div style={reviewSection}>
-              <div style={bigLabel}>Reference</div>
-              <div style={smallCommentText}>{selectedRecord?.reference || "No reference added."}</div>
-            </div>
-
-            <div style={reviewSection}>
-              <div style={bigLabel}>Comments</div>
-              <div style={smallCommentText}>{selectedRecord?.comments || "No comments added."}</div>
-            </div>
-
+            <div style={reviewSection}><div style={bigLabel}>Reference</div><div style={smallCommentText}>{selectedRecord?.reference || "No reference added."}</div></div>
+            <div style={reviewSection}><div style={bigLabel}>Comments</div><div style={smallCommentText}>{selectedRecord?.comments || "No comments added."}</div></div>
             <div style={reviewSection}>
               <div style={bigLabel}>Attachments</div>
               {selectedRecord?.attachments?.length ? (
@@ -1159,20 +1157,11 @@ export default function App() {
                   {selectedRecord.attachments.map((file, index) => (
                     <div key={index} style={{ fontSize: 13 }}>
                       <div style={{ color: "#334155" }}>{file.name}</div>
-                      <a
-                        href={file.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: "#2563eb", textDecoration: "none" }}
-                      >
-                        Open file
-                      </a>
+                      <a href={file.url} target="_blank" rel="noreferrer" style={{ color: "#2563eb", textDecoration: "none" }}>Open file</a>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div style={smallCommentText}>No attachments.</div>
-              )}
+              ) : <div style={smallCommentText}>No attachments.</div>}
             </div>
           </div>
 
@@ -1181,15 +1170,7 @@ export default function App() {
             {Object.entries(crewSummary).map(([crew, feet]) => (
               <div key={crew} style={summaryRow}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 999,
-                      background: getCrewColor(crew),
-                      display: "inline-block",
-                    }}
-                  />
+                  <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(crew), display: "inline-block" }} />
                   <strong>{crew}</strong>
                 </div>
                 <span>{feet} ft</span>
@@ -1202,15 +1183,7 @@ export default function App() {
             {crewOptions.length ? crewOptions.map((crew) => (
               <div key={crew} style={summaryRow}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 999,
-                      background: getCrewColor(crew),
-                      display: "inline-block",
-                    }}
-                  />
+                  <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(crew), display: "inline-block" }} />
                   <strong>{crew}</strong>
                 </div>
               </div>
@@ -1221,10 +1194,7 @@ export default function App() {
             <div style={reviewCard}>
               <div style={reviewTitle}>Open Gaps</div>
               {gaps.length ? gaps.map((gap, index) => (
-                <div key={index} style={gapRow}>
-                  <strong>{formatStation(gap.start)} to {formatStation(gap.end)}</strong>
-                  <div>{gap.end - gap.start} ft unfinished</div>
-                </div>
+                <div key={index} style={gapRow}><strong>{formatStation(gap.start)} to {formatStation(gap.end)}</strong><div>{gap.end - gap.start} ft unfinished</div></div>
               )) : <div>No gaps found.</div>}
             </div>
           )}
@@ -1237,11 +1207,7 @@ export default function App() {
                 <div key={ticket.id} style={gapRow}>
                   <strong>{ticket.ticketNumber || "No ticket number"}</strong>
                   <div>{ticket.areaSection || "No area / section"}</div>
-                  <div>
-                    <span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>
-                      {ticket.status}
-                    </span>
-                  </div>
+                  <div><span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>{ticket.status}</span></div>
                 </div>
               );
             }) : <div>No ticket records yet.</div>}
@@ -1252,355 +1218,49 @@ export default function App() {
   );
 }
 
-const pageStyle = {
-  minHeight: "100vh",
-  background: "#f8fafc",
-  color: "#111827",
-  padding: 20,
-  fontFamily: "Arial, sans-serif",
-};
-
-const layoutGrid = {
-  display: "grid",
-  gridTemplateColumns: "1.8fr 1fr",
-  gap: 20,
-  alignItems: "start",
-};
-
-const mainBottom = {
-  display: "grid",
-  gap: 20,
-};
-
-const headerCard = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 18,
-  padding: 24,
-};
-
-const sectionCard = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 18,
-  padding: 24,
-};
-
-const reviewPanel = {
-  display: "grid",
-  gap: 16,
-  position: "sticky",
-  top: 20,
-};
-
-const reviewHeaderCard = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 18,
-  padding: 18,
-};
-
-const reviewCard = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 18,
-  padding: 18,
-};
-
-const reviewTitle = {
-  fontWeight: 700,
-  fontSize: 16,
-  marginBottom: 10,
-};
-
-const reviewSection = {
-  padding: "12px 0",
-  borderTop: "1px solid #e5e7eb",
-};
-
-const actionRow = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const formGrid2 = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 14,
-};
-
-const metaPillRow = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 16,
-};
-
-const metaPill = {
-  display: "inline-block",
-  padding: "7px 10px",
-  borderRadius: 999,
-  background: "#eef2ff",
-  fontSize: 13,
-};
-
-const statusBadge = {
-  display: "inline-block",
-  padding: "5px 10px",
-  borderRadius: 999,
-  background: "#eef2ff",
-  fontSize: 11,
-  fontWeight: 600,
-};
-
-const statusChip = {
-  display: "inline-block",
-  padding: "3px 8px",
-  borderRadius: 999,
-  background: "#dcfce7",
-  color: "#166534",
-  fontSize: 12,
-  fontWeight: 700,
-};
-
-const statsRow = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 14,
-  marginTop: 18,
-};
-
-const statBox = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 16,
-  padding: 18,
-  background: "#fff",
-};
-
-const statLabel = {
-  fontSize: 13,
-  color: "#6b7280",
-};
-
-const statValue = {
-  fontSize: 20,
-  fontWeight: 700,
-  marginTop: 6,
-};
-
-const statusNoteBox = {
-  marginTop: 16,
-  border: "1px solid #e5e7eb",
-  borderRadius: 16,
-  padding: 14,
-  background: "#fff",
-};
-
-const helperNote = {
-  marginTop: 10,
-  fontSize: 13,
-  color: "#475569",
-};
-
-const lineLabelRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  fontSize: 13,
-  color: "#6b7280",
-  marginBottom: 8,
-};
-
-const lineTrack = {
-  position: "relative",
-  height: 34,
-  borderRadius: 999,
-  background: "#dbe4ef",
-  overflow: "hidden",
-};
-
-const legendRow = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  marginTop: 12,
-};
-
-const legendPill = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "6px 10px",
-  borderRadius: 999,
-  border: "1px solid #e5e7eb",
-  background: "#fff",
-  fontSize: 13,
-};
-
-const inputStyle = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 12,
-  border: "1px solid #cbd5e1",
-  fontSize: 14,
-  boxSizing: "border-box",
-  background: "#fff",
-};
-
-const darkBtn = {
-  background: "#111827",
-  color: "#fff",
-  border: "none",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const primaryBtn = {
-  background: "#22c55e",
-  color: "#fff",
-  border: "none",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const lightBtn = {
-  background: "#f3f4f6",
-  color: "#111827",
-  border: "none",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const dangerBtn = {
-  background: "#dc2626",
-  color: "#fff",
-  border: "none",
-  borderRadius: 12,
-  padding: "10px 14px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const uploadButton = {
-  display: "inline-block",
-  background: "#fff",
-  border: "1px solid #d1d5db",
-  borderRadius: 10,
-  padding: "8px 10px",
-  cursor: "pointer",
-  fontSize: 12,
-  textAlign: "center",
-};
-
-const smallLabel = {
-  fontSize: 13,
-  fontWeight: 700,
-  marginBottom: 6,
-};
-
-const bigLabel = {
-  fontSize: 16,
-  fontWeight: 700,
-  marginBottom: 8,
-};
-
-const smallCommentText = {
-  fontSize: 13,
-  color: "#4b5563",
-  lineHeight: 1.45,
-};
-
-const summaryRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  padding: "8px 0",
-  borderTop: "1px solid #e5e7eb",
-};
-
-const gapRow = {
-  borderTop: "1px solid #e5e7eb",
-  paddingTop: 10,
-  marginTop: 10,
-};
-
-const tableCard = {
-  marginTop: 10,
-  border: "1px solid #e5e7eb",
-  borderRadius: 16,
-  overflow: "hidden",
-};
-
-const tableHeaderOld = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr",
-  gap: 12,
-  padding: 14,
-  background: "#f8fafc",
-  fontWeight: 700,
-  fontSize: 13,
-};
-
-const tableRowOld = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr",
-  gap: 12,
-  padding: 14,
-  borderTop: "1px solid #e5e7eb",
-  alignItems: "center",
-};
-
-const tableHeaderTickets = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr",
-  gap: 12,
-  padding: 14,
-  background: "#f8fafc",
-  fontWeight: 700,
-  fontSize: 13,
-};
-
-const tableRowTickets = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr",
-  gap: 12,
-  padding: 14,
-  borderTop: "1px solid #e5e7eb",
-  alignItems: "center",
-};
-
-const tableButton = {
-  background: "#f3f4f6",
-  border: "none",
-  borderRadius: 10,
-  padding: "8px 10px",
-  cursor: "pointer",
-};
-
-const filterWrap = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 10,
-};
-
-const filterChip = {
-  padding: "8px 12px",
-  borderRadius: 999,
-  border: "1px solid #d1d5db",
-  background: "#fff",
-  cursor: "pointer",
-  fontSize: 13,
-};
-
-const selectedFilterChip = {
-  ...filterChip,
-  background: "#e0f2fe",
-  border: "1px solid #7dd3fc",
-};
+const pageStyle = { minHeight: "100vh", background: "#f8fafc", color: "#111827", padding: 20, fontFamily: "Arial, sans-serif" };
+const layoutGrid = { display: "grid", gridTemplateColumns: "1.8fr 1fr", gap: 20, alignItems: "start" };
+const mainBottom = { display: "grid", gap: 20 };
+const headerCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 24 };
+const sectionCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 24 };
+const reviewPanel = { display: "grid", gap: 16, position: "sticky", top: 20 };
+const reviewHeaderCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 18 };
+const reviewCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 18 };
+const reviewTitle = { fontWeight: 700, fontSize: 16, marginBottom: 10 };
+const reviewSection = { padding: "12px 0", borderTop: "1px solid #e5e7eb" };
+const actionRow = { display: "flex", gap: 10, flexWrap: "wrap" };
+const formGrid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 };
+const metaPillRow = { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 };
+const metaPill = { display: "inline-block", padding: "7px 10px", borderRadius: 999, background: "#eef2ff", fontSize: 13 };
+const statusBadge = { display: "inline-block", padding: "5px 10px", borderRadius: 999, background: "#eef2ff", fontSize: 11, fontWeight: 600 };
+const statusChip = { display: "inline-block", padding: "3px 8px", borderRadius: 999, background: "#dcfce7", color: "#166534", fontSize: 12, fontWeight: 700 };
+const statsRow = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginTop: 18 };
+const statBox = { border: "1px solid #e5e7eb", borderRadius: 16, padding: 18, background: "#fff" };
+const statLabel = { fontSize: 13, color: "#6b7280" };
+const statValue = { fontSize: 20, fontWeight: 700, marginTop: 6 };
+const statusNoteBox = { marginTop: 16, border: "1px solid #e5e7eb", borderRadius: 16, padding: 14, background: "#fff" };
+const helperNote = { marginTop: 10, fontSize: 13, color: "#475569" };
+const lineLabelRow = { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 8 };
+const lineTrack = { position: "relative", height: 34, borderRadius: 999, background: "#dbe4ef", overflow: "hidden" };
+const legendRow = { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 };
+const legendPill = { display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 13 };
+const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid #cbd5e1", fontSize: 14, boxSizing: "border-box", background: "#fff" };
+const darkBtn = { background: "#111827", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+const primaryBtn = { background: "#22c55e", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+const lightBtn = { background: "#f3f4f6", color: "#111827", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+const dangerBtn = { background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
+const uploadButton = { display: "inline-block", background: "#fff", border: "1px solid #d1d5db", borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontSize: 12, textAlign: "center" };
+const smallLabel = { fontSize: 13, fontWeight: 700, marginBottom: 6 };
+const bigLabel = { fontSize: 16, fontWeight: 700, marginBottom: 8 };
+const smallCommentText = { fontSize: 13, color: "#4b5563", lineHeight: 1.45 };
+const summaryRow = { display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderTop: "1px solid #e5e7eb" };
+const gapRow = { borderTop: "1px solid #e5e7eb", paddingTop: 10, marginTop: 10 };
+const tableCard = { marginTop: 10, border: "1px solid #e5e7eb", borderRadius: 16, overflow: "hidden" };
+const tableHeaderOld = { display: "grid", gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr", gap: 12, padding: 14, background: "#f8fafc", fontWeight: 700, fontSize: 13 };
+const tableRowOld = { display: "grid", gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr", gap: 12, padding: 14, borderTop: "1px solid #e5e7eb", alignItems: "center" };
+const tableHeaderTickets = { display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr", gap: 12, padding: 14, background: "#f8fafc", fontWeight: 700, fontSize: 13 };
+const tableRowTickets = { display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr", gap: 12, padding: 14, borderTop: "1px solid #e5e7eb", alignItems: "center" };
+const tableButton = { background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 10px", cursor: "pointer" };
+const filterWrap = { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 };
+const filterChip = { padding: "8px 12px", borderRadius: 999, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer", fontSize: 13 };
+const selectedFilterChip = { ...filterChip, background: "#e0f2fe", border: "1px solid #7dd3fc" };
