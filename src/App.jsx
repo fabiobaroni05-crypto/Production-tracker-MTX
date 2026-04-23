@@ -18,8 +18,6 @@ const emptyProjectForm = {
   endStation: "22+19",
   status: "Active",
   comment: "",
-  pipeSize: "",
-  drillDirection: "",
   crews: [],
 };
 
@@ -29,6 +27,8 @@ const emptyProductionForm = {
   start: "",
   end: "",
   footage: "",
+  pipeSize: "",
+  drillDirection: "",
   reference: "",
   comments: "",
 };
@@ -345,8 +345,6 @@ export default function App() {
         endStation: project.end_station || "00+00",
         status: project.status || "Active",
         comment: project.comment || "",
-        pipeSize: project.pipe_size || "",
-        drillDirection: project.drill_direction || "",
         crews: [],
       }));
 
@@ -364,8 +362,6 @@ export default function App() {
           endStation: "00+00",
           totalFootage: 0,
           comment: "",
-          pipeSize: "",
-          drillDirection: "",
           crews: [],
         };
         setProjects([]);
@@ -397,6 +393,8 @@ export default function App() {
         start: record.start_station || "",
         end: record.end_station || "",
         footage: Number(record.footage || 0),
+        pipeSize: record.pipe_size || "",
+        drillDirection: record.drill_direction || "",
         reference: record.reference || "",
         comments: record.comments || "",
         attachments: [],
@@ -424,7 +422,9 @@ export default function App() {
 
   const projectRecords = useMemo(() => {
     if (!selectedProjectId) return [];
-    return productionRecords.filter((record) => String(record.projectId) === String(selectedProjectId));
+    return productionRecords.filter(
+      (record) => String(record.projectId) === String(selectedProjectId)
+    );
   }, [productionRecords, selectedProjectId]);
 
   const projectTickets = useMemo(() => {
@@ -473,7 +473,10 @@ export default function App() {
 
   const autoProjectTotal =
     projectForm.trackingType === "Station based"
-      ? Math.max(stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation), 0)
+      ? Math.max(
+          stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation),
+          0
+        )
       : Number(projectForm.totalFootage || 0);
 
   const productionPreviewFootage =
@@ -488,14 +491,15 @@ export default function App() {
       tracking_type: projectForm.trackingType || "Station based",
       total_feet:
         projectForm.trackingType === "Station based"
-          ? Math.max(stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation), 0)
+          ? Math.max(
+              stationToFeet(projectForm.endStation) - stationToFeet(projectForm.startStation),
+              0
+            )
           : Number(projectForm.totalFootage || 0),
       start_station: projectForm.startStation || "00+00",
       end_station: projectForm.endStation || "00+00",
       status: projectForm.status || "Active",
       comment: projectForm.comment || "",
-      pipe_size: projectForm.pipeSize || "",
-      drill_direction: projectForm.drillDirection || "",
     };
 
     const dbId = isUuid(selectedProjectId) ? selectedProjectId : null;
@@ -541,8 +545,6 @@ export default function App() {
         endStation: data.end_station || "00+00",
         status: data.status || "Active",
         comment: data.comment || "",
-        pipeSize: data.pipe_size || "",
-        drillDirection: data.drill_direction || "",
         crews: selectedProject?.crews || [],
       };
 
@@ -657,8 +659,6 @@ export default function App() {
       endStation: "00+00",
       totalFootage: 0,
       comment: "",
-      pipeSize: "",
-      drillDirection: "",
       crews: [],
     };
 
@@ -705,6 +705,8 @@ export default function App() {
       end_station:
         projectForm.trackingType === "Station based" ? productionForm.end : null,
       footage: normalizedFootage,
+      pipe_size: productionForm.pipeSize || "",
+      drill_direction: productionForm.drillDirection || "",
       reference: productionForm.reference || "",
       comments: productionForm.comments || "",
     };
@@ -748,6 +750,8 @@ export default function App() {
         start: data.start_station || "",
         end: data.end_station || "",
         footage: Number(data.footage || 0),
+        pipeSize: data.pipe_size || "",
+        drillDirection: data.drill_direction || "",
         reference: data.reference || "",
         comments: data.comments || "",
         attachments:
@@ -803,6 +807,8 @@ export default function App() {
       start: record.start || "",
       end: record.end || "",
       footage: record.footage || "",
+      pipeSize: record.pipeSize || "",
+      drillDirection: record.drillDirection || "",
       reference: record.reference || "",
       comments: record.comments || "",
     });
@@ -1116,28 +1122,6 @@ export default function App() {
                   <option>Completed</option>
                 </select>
               </div>
-
-              <div>
-                <div style={smallLabel}>Pipe size</div>
-                <input
-                  style={inputStyle}
-                  value={projectForm.pipeSize || ""}
-                  onChange={(e) => setProjectForm({ ...projectForm, pipeSize: e.target.value })}
-                  placeholder='Example: 2" HDPE'
-                />
-              </div>
-
-              <div>
-                <div style={smallLabel}>Drill direction</div>
-                <input
-                  style={inputStyle}
-                  value={projectForm.drillDirection || ""}
-                  onChange={(e) =>
-                    setProjectForm({ ...projectForm, drillDirection: e.target.value })
-                  }
-                  placeholder="Example: West to East"
-                />
-              </div>
             </div>
 
             {projectForm.trackingType === "Station based" && (
@@ -1243,6 +1227,30 @@ export default function App() {
                   />
                 </div>
               )}
+
+              <div>
+                <div style={smallLabel}>Pipe size</div>
+                <input
+                  style={inputStyle}
+                  value={productionForm.pipeSize || ""}
+                  onChange={(e) =>
+                    setProductionForm({ ...productionForm, pipeSize: e.target.value })
+                  }
+                  placeholder='Example: 2" HDPE'
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Drill direction</div>
+                <input
+                  style={inputStyle}
+                  value={productionForm.drillDirection || ""}
+                  onChange={(e) =>
+                    setProductionForm({ ...productionForm, drillDirection: e.target.value })
+                  }
+                  placeholder="Example: West to East"
+                />
+              </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={smallLabel}>Reference</div>
@@ -1618,14 +1626,14 @@ export default function App() {
             <div style={reviewSection}>
               <div style={bigLabel}>Pipe size</div>
               <div style={smallCommentText}>
-                {displayProject?.pipeSize || "No pipe size added."}
+                {selectedRecord?.pipeSize || "No pipe size added."}
               </div>
             </div>
 
             <div style={reviewSection}>
               <div style={bigLabel}>Drill direction</div>
               <div style={smallCommentText}>
-                {displayProject?.drillDirection || "No drill direction added."}
+                {selectedRecord?.drillDirection || "No drill direction added."}
               </div>
             </div>
 
