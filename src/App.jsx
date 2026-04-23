@@ -1781,8 +1781,8 @@ const pageStyle = {
 
 const layoutGrid = {
   display: "grid",
-  gridTemplateColumns: "1.8fr 1fr",
-  gap: 20,
+  gridTemplateColumns: "2fr 1fr",
+  gap: 24,
   alignItems: "start",
 };
 
@@ -1808,8 +1808,7 @@ const sectionCard = {
 const reviewPanel = {
   display: "grid",
   gap: 16,
-  position: "sticky",
-  top: 20,
+  alignSelf: "start",
 };
 
 const reviewHeaderCard = {
