@@ -18,6 +18,8 @@ const emptyProjectForm = {
   endStation: "22+19",
   status: "Active",
   comment: "",
+  pipeSize: "",
+  drillDirection: "",
   crews: [],
 };
 
@@ -187,7 +189,7 @@ function getTicketStatusStyle(status) {
   }
 }
 
-function ProductionLine({ project, records }) {
+function ProductionLine({ project, records, onSelectRecord, selectedRecordId }) {
   if (project.trackingType === "Station based") {
     const start = stationToFeet(project.startStation);
     const end = stationToFeet(project.endStation);
@@ -204,11 +206,13 @@ function ProductionLine({ project, records }) {
           {records.map((record) => {
             const left = ((stationToFeet(record.start) - start) / total) * 100;
             const width = (getProductionFootage(record.start, record.end) / total) * 100;
+            const isSelected = selectedRecordId === record.id;
 
             return (
               <div
                 key={record.id}
                 title={`${record.crew}: ${record.start} to ${record.end}`}
+                onClick={() => onSelectRecord?.(record)}
                 style={{
                   position: "absolute",
                   left: `${left}%`,
@@ -217,6 +221,9 @@ function ProductionLine({ project, records }) {
                   bottom: 0,
                   background: getCrewColor(record.crew),
                   borderRadius: 999,
+                  cursor: "pointer",
+                  border: isSelected ? "2px solid #0f172a" : "none",
+                  boxShadow: isSelected ? "0 0 0 2px rgba(15, 23, 42, 0.18)" : "none",
                 }}
               />
             );
@@ -338,6 +345,8 @@ export default function App() {
         endStation: project.end_station || "00+00",
         status: project.status || "Active",
         comment: project.comment || "",
+        pipeSize: project.pipe_size || "",
+        drillDirection: project.drill_direction || "",
         crews: [],
       }));
 
@@ -355,6 +364,8 @@ export default function App() {
           endStation: "00+00",
           totalFootage: 0,
           comment: "",
+          pipeSize: "",
+          drillDirection: "",
           crews: [],
         };
         setProjects([]);
@@ -427,6 +438,18 @@ export default function App() {
     if (selectedProject) setProjectForm(selectedProject);
   }, [selectedProject]);
 
+  useEffect(() => {
+    if (!projectRecords.length) {
+      setSelectedRecordId(null);
+      return;
+    }
+
+    const stillExists = projectRecords.some((record) => record.id === selectedRecordId);
+    if (!stillExists) {
+      setSelectedRecordId(projectRecords[0].id);
+    }
+  }, [projectRecords, selectedRecordId]);
+
   const crewOptions = useMemo(() => {
     const names = new Set(selectedProject?.crews || []);
     projectRecords.forEach((record) => names.add(normalizeCrewName(record.crew)));
@@ -471,6 +494,8 @@ export default function App() {
       end_station: projectForm.endStation || "00+00",
       status: projectForm.status || "Active",
       comment: projectForm.comment || "",
+      pipe_size: projectForm.pipeSize || "",
+      drill_direction: projectForm.drillDirection || "",
     };
 
     const dbId = isUuid(selectedProjectId) ? selectedProjectId : null;
@@ -516,6 +541,8 @@ export default function App() {
         endStation: data.end_station || "00+00",
         status: data.status || "Active",
         comment: data.comment || "",
+        pipeSize: data.pipe_size || "",
+        drillDirection: data.drill_direction || "",
         crews: selectedProject?.crews || [],
       };
 
@@ -536,113 +563,114 @@ export default function App() {
     }
   };
 
-const deleteProject = async () => {
-  const ok = window.confirm("Delete this project?");
-  if (!ok) return;
+  const deleteProject = async () => {
+    const ok = window.confirm("Delete this project?");
+    if (!ok) return;
 
-  const dbId = selectedProjectId;
+    const dbId = selectedProjectId;
 
-  try {
-     
-    // 🔴 FIRST: delete files
-    const { error: filesError } = await supabase
-     .from("files")
-     .delete()
-     .eq("project_id", dbId);
+    try {
+      const { error: filesError } = await supabase
+        .from("files")
+        .delete()
+        .eq("project_id", dbId);
 
-    if (filesError) {
-      console.error("Error deleting files:", filesError);
-      alert("Failed to delete linked files.");
-      return;
+      if (filesError) {
+        console.error("Error deleting files:", filesError);
+        alert("Failed to delete linked files.");
+        return;
+      }
+
+      const { error: productionError } = await supabase
+        .from("production_records")
+        .delete()
+        .eq("project_id", dbId);
+
+      if (productionError) {
+        console.error("Error deleting production records:", productionError);
+        alert("Failed to delete linked production records.");
+        return;
+      }
+
+      const { error: projectError } = await supabase
+        .from("projects")
+        .delete()
+        .eq("id", dbId);
+
+      if (projectError) {
+        console.error("Error deleting project:", projectError);
+        alert("Failed to delete project.");
+        return;
+      }
+
+      const remainingProjects = projects.filter(
+        (project) => String(project.id) !== String(selectedProjectId)
+      );
+
+      setProductionRecords((prev) =>
+        prev.filter((record) => String(record.projectId) !== String(selectedProjectId))
+      );
+      setTicketRecords((prev) =>
+        prev.filter((ticket) => String(ticket.projectId) !== String(selectedProjectId))
+      );
+      setSelectedCrews([]);
+      setSelectedRecordId(null);
+      setEditingRecordId(null);
+      setEditingTicketId(null);
+      setProductionForm(emptyProductionForm);
+      setTicketForm(emptyTicketForm);
+
+      if (remainingProjects.length) {
+        const nextProject = remainingProjects[0];
+        setProjects(remainingProjects);
+        setSelectedProjectId(String(nextProject.id));
+        setProjectForm(nextProject);
+      } else {
+        const fallbackProject = {
+          id: null,
+          ...emptyProjectForm,
+          name: "New Project",
+          client: "",
+          startStation: "00+00",
+          endStation: "00+00",
+          totalFootage: 0,
+          comment: "",
+          crews: [],
+        };
+        setProjects([]);
+        setSelectedProjectId(null);
+        setProjectForm(fallbackProject);
+      }
+    } catch (err) {
+      console.error("Unexpected delete error:", err);
+      alert("Unexpected error while deleting project.");
     }
-    const { error: productionError } = await supabase
-      .from("production_records")
-      .delete()
-      .eq("project_id", dbId);
+  };
 
-    if (productionError) {
-      console.error("Error deleting production records:", productionError);
-      alert("Failed to delete linked production records.");
-      return;
-    }
+  const newProject = () => {
+    const project = {
+      id: null,
+      ...emptyProjectForm,
+      name: "New Project",
+      client: "",
+      startStation: "00+00",
+      endStation: "00+00",
+      totalFootage: 0,
+      comment: "",
+      pipeSize: "",
+      drillDirection: "",
+      crews: [],
+    };
 
-    const { error: projectError } = await supabase
-      .from("projects")
-      .delete()
-      .eq("id", dbId);
-
-    if (projectError) {
-      console.error("Error deleting project:", projectError);
-      alert("Failed to delete project.");
-      return;
-    }
-
-    const remainingProjects = projects.filter(
-      (project) => String(project.id) !== String(selectedProjectId)
-    );
-
-    setProductionRecords((prev) =>
-      prev.filter((record) => String(record.projectId) !== String(selectedProjectId))
-    );
-    setTicketRecords((prev) =>
-      prev.filter((ticket) => String(ticket.projectId) !== String(selectedProjectId))
-    );
-    setSelectedCrews([]);
+    setSelectedProjectId(null);
+    setProjectForm(project);
     setSelectedRecordId(null);
+    setSelectedCrews([]);
     setEditingRecordId(null);
     setEditingTicketId(null);
     setProductionForm(emptyProductionForm);
     setTicketForm(emptyTicketForm);
-
-    if (remainingProjects.length) {
-      const nextProject = remainingProjects[0];
-      setProjects(remainingProjects);
-      setSelectedProjectId(String(nextProject.id));
-      setProjectForm(nextProject);
-    } else {
-      const fallbackProject = {
-        id: null,
-        ...emptyProjectForm,
-        name: "New Project",
-        client: "",
-        startStation: "00+00",
-        endStation: "00+00",
-        totalFootage: 0,
-        comment: "",
-        crews: [],
-      };
-      setProjects([]);
-      setSelectedProjectId(null);
-      setProjectForm(fallbackProject);
-    }
-  } catch (err) {
-    console.error("Unexpected delete error:", err);
-    alert("Unexpected error while deleting project.");
-  }
-};
-
-const newProject = () => {
-  const project = {
-    id: null,
-    ...emptyProjectForm,
-    name: "New Project",
-    client: "",
-    startStation: "00+00",
-    endStation: "00+00",
-    totalFootage: 0,
-    comment: "",
-    crews: [],
   };
-
-  setSelectedProjectId(null);
-  setProjectForm(project);
-  setSelectedRecordId(null);
-  setSelectedCrews([]);
-  setEditingRecordId(null);
-  setEditingTicketId(null);
-  setProductionForm(emptyProductionForm);
-  setTicketForm(emptyTicketForm);
-};
 
   const handleSaveProduction = async () => {
     if (!selectedProjectId) {
@@ -766,6 +794,20 @@ const newProject = () => {
     }
   };
 
+  const handleEditProduction = (record) => {
+    setEditingRecordId(record.id);
+    setSelectedRecordId(record.id);
+    setProductionForm({
+      crew: record.crew || "",
+      date: record.date || "",
+      start: record.start || "",
+      end: record.end || "",
+      footage: record.footage || "",
+      reference: record.reference || "",
+      comments: record.comments || "",
+    });
+  };
+
   const handleDeleteProduction = async (id) => {
     const ok = window.confirm("Delete this production row?");
     if (!ok) return;
@@ -827,7 +869,9 @@ const newProject = () => {
     };
 
     if (editingTicketId) {
-      setTicketRecords((prev) => prev.map((ticket) => (ticket.id === editingTicketId ? payload : ticket)));
+      setTicketRecords((prev) =>
+        prev.map((ticket) => (ticket.id === editingTicketId ? payload : ticket))
+      );
     } else {
       setTicketRecords((prev) => [...prev, payload]);
     }
@@ -935,65 +979,190 @@ const newProject = () => {
             </div>
 
             <div style={statsRow}>
-              <div style={statBox}><div style={statLabel}>Finished footage</div><div style={statValue}>{progress.finished} ft</div></div>
-              <div style={statBox}><div style={statLabel}>Remaining footage</div><div style={statValue}>{progress.remaining} ft</div></div>
-              <div style={statBox}><div style={statLabel}>Project progress</div><div style={statValue}>{progress.percent}%</div></div>
+              <div style={statBox}>
+                <div style={statLabel}>Finished footage</div>
+                <div style={statValue}>{progress.finished} ft</div>
+              </div>
+              <div style={statBox}>
+                <div style={statLabel}>Remaining footage</div>
+                <div style={statValue}>{progress.remaining} ft</div>
+              </div>
+              <div style={statBox}>
+                <div style={statLabel}>Project progress</div>
+                <div style={statValue}>{progress.percent}%</div>
+              </div>
             </div>
 
-            <div style={statusNoteBox}><strong>Status note:</strong> {displayProject?.comment || "No project comment added."}</div>
-            <div style={{ marginTop: 16 }}><ProductionLine project={displayProject} records={projectRecords} /></div>
+            <div style={statusNoteBox}>
+              <strong>Status note:</strong> {displayProject?.comment || "No project comment added."}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <ProductionLine
+                project={displayProject}
+                records={projectRecords}
+                selectedRecordId={selectedRecordId}
+                onSelectRecord={(record) => setSelectedRecordId(record.id)}
+              />
+            </div>
           </div>
 
           <div style={sectionCard}>
             <h2 style={{ marginTop: 0 }}>Project Setup</h2>
             <div style={formGrid2}>
-              <div><div style={smallLabel}>Project name</div><input style={inputStyle} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} /></div>
-              <div><div style={smallLabel}>Client</div><input style={inputStyle} value={projectForm.client} onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })} /></div>
+              <div>
+                <div style={smallLabel}>Project name</div>
+                <input
+                  style={inputStyle}
+                  value={projectForm.name}
+                  onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Client</div>
+                <input
+                  style={inputStyle}
+                  value={projectForm.client}
+                  onChange={(e) => setProjectForm({ ...projectForm, client: e.target.value })}
+                />
+              </div>
+
               <div>
                 <div style={smallLabel}>Tracking type</div>
-                <select style={inputStyle} value={projectForm.trackingType} onChange={(e) => setProjectForm({ ...projectForm, trackingType: e.target.value, startStation: e.target.value === "Station based" ? projectForm.startStation || "00+00" : "00+00", endStation: e.target.value === "Station based" ? projectForm.endStation || "00+00" : "00+00" })}>
+                <select
+                  style={inputStyle}
+                  value={projectForm.trackingType}
+                  onChange={(e) =>
+                    setProjectForm({
+                      ...projectForm,
+                      trackingType: e.target.value,
+                      startStation:
+                        e.target.value === "Station based"
+                          ? projectForm.startStation || "00+00"
+                          : "00+00",
+                      endStation:
+                        e.target.value === "Station based"
+                          ? projectForm.endStation || "00+00"
+                          : "00+00",
+                    })
+                  }
+                >
                   <option>Station based</option>
                   <option>Footage based</option>
                 </select>
               </div>
+
               <div>
-                <div style={smallLabel}>Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}</div>
+                <div style={smallLabel}>
+                  Total footage {projectForm.trackingType === "Station based" ? "(auto)" : ""}
+                </div>
                 <input
-                  style={{ ...inputStyle, background: projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff", color: projectForm.trackingType === "Station based" ? "#475569" : "#111827" }}
-                  value={projectForm.trackingType === "Station based" ? autoProjectTotal : (projectForm.totalFootage ?? 0)}
+                  style={{
+                    ...inputStyle,
+                    background:
+                      projectForm.trackingType === "Station based" ? "#f8fafc" : "#fff",
+                    color:
+                      projectForm.trackingType === "Station based" ? "#475569" : "#111827",
+                  }}
+                  value={
+                    projectForm.trackingType === "Station based"
+                      ? autoProjectTotal
+                      : (projectForm.totalFootage ?? 0)
+                  }
                   readOnly={projectForm.trackingType === "Station based"}
-                  onChange={(e) => setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })}
+                  onChange={(e) =>
+                    setProjectForm({ ...projectForm, totalFootage: Number(e.target.value || 0) })
+                  }
                 />
               </div>
 
               {projectForm.trackingType === "Station based" && (
                 <>
-                  <div><div style={smallLabel}>Project start station</div><input style={inputStyle} value={projectForm.startStation} onChange={(e) => setProjectForm({ ...projectForm, startStation: e.target.value })} /></div>
-                  <div><div style={smallLabel}>Project end station</div><input style={inputStyle} value={projectForm.endStation} onChange={(e) => setProjectForm({ ...projectForm, endStation: e.target.value })} /></div>
+                  <div>
+                    <div style={smallLabel}>Project start station</div>
+                    <input
+                      style={inputStyle}
+                      value={projectForm.startStation}
+                      onChange={(e) =>
+                        setProjectForm({ ...projectForm, startStation: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <div style={smallLabel}>Project end station</div>
+                    <input
+                      style={inputStyle}
+                      value={projectForm.endStation}
+                      onChange={(e) =>
+                        setProjectForm({ ...projectForm, endStation: e.target.value })
+                      }
+                    />
+                  </div>
                 </>
               )}
 
               <div>
                 <div style={smallLabel}>Project status</div>
-                <select style={inputStyle} value={projectForm.status} onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}>
+                <select
+                  style={inputStyle}
+                  value={projectForm.status}
+                  onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
+                >
                   <option>Active</option>
                   <option>On Hold</option>
                   <option>Waiting on Permits</option>
                   <option>Completed</option>
                 </select>
               </div>
+
+              <div>
+                <div style={smallLabel}>Pipe size</div>
+                <input
+                  style={inputStyle}
+                  value={projectForm.pipeSize || ""}
+                  onChange={(e) => setProjectForm({ ...projectForm, pipeSize: e.target.value })}
+                  placeholder='Example: 2" HDPE'
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Drill direction</div>
+                <input
+                  style={inputStyle}
+                  value={projectForm.drillDirection || ""}
+                  onChange={(e) =>
+                    setProjectForm({ ...projectForm, drillDirection: e.target.value })
+                  }
+                  placeholder="Example: West to East"
+                />
+              </div>
             </div>
 
-            {projectForm.trackingType === "Station based" && <div style={helperNote}>Total footage is protected and calculated automatically from start station and end station.</div>}
+            {projectForm.trackingType === "Station based" && (
+              <div style={helperNote}>
+                Total footage is protected and calculated automatically from start station and end station.
+              </div>
+            )}
 
             <div style={{ marginTop: 14 }}>
               <div style={smallLabel}>Project comment / hold note</div>
-              <textarea style={{ ...inputStyle, minHeight: 100 }} value={projectForm.comment} onChange={(e) => setProjectForm({ ...projectForm, comment: e.target.value })} />
+              <textarea
+                style={{ ...inputStyle, minHeight: 100 }}
+                value={projectForm.comment}
+                onChange={(e) => setProjectForm({ ...projectForm, comment: e.target.value })}
+              />
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
               <button style={primaryBtn} onClick={saveProject}>Update project</button>
-              <button style={lightBtn} onClick={() => setProjectForm(selectedProject || emptyProjectForm)}>Clear form</button>
+              <button
+                style={lightBtn}
+                onClick={() => setProjectForm(selectedProject || emptyProjectForm)}
+              >
+                Clear form
+              </button>
             </div>
           </div>
 
@@ -1008,39 +1177,130 @@ const newProject = () => {
             <div style={formGrid2}>
               <div>
                 <div style={smallLabel}>Crew</div>
-                <input list="crew-options" style={inputStyle} value={productionForm.crew} onChange={(e) => setProductionForm({ ...productionForm, crew: e.target.value })} placeholder="Type or select crew" />
+                <input
+                  list="crew-options"
+                  style={inputStyle}
+                  value={productionForm.crew}
+                  onChange={(e) => setProductionForm({ ...productionForm, crew: e.target.value })}
+                  placeholder="Type or select crew"
+                />
                 <datalist id="crew-options">
-                  {crewOptions.map((crew) => <option key={crew} value={crew} />)}
+                  {crewOptions.map((crew) => (
+                    <option key={crew} value={crew} />
+                  ))}
                 </datalist>
               </div>
-              <div><div style={smallLabel}>Date</div><input type="date" style={inputStyle} value={productionForm.date} onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })} /></div>
+
+              <div>
+                <div style={smallLabel}>Date</div>
+                <input
+                  type="date"
+                  style={inputStyle}
+                  value={productionForm.date}
+                  onChange={(e) => setProductionForm({ ...productionForm, date: e.target.value })}
+                />
+              </div>
 
               {projectForm.trackingType === "Station based" ? (
                 <>
-                  <div><div style={smallLabel}>Start station</div><input style={inputStyle} value={productionForm.start} onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })} /></div>
-                  <div><div style={smallLabel}>End station</div><input style={inputStyle} value={productionForm.end} onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })} /></div>
-                  <div><div style={smallLabel}>Footage (auto)</div><input style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }} value={productionPreviewFootage ?? 0} readOnly /></div>
+                  <div>
+                    <div style={smallLabel}>Start station</div>
+                    <input
+                      style={inputStyle}
+                      value={productionForm.start}
+                      onChange={(e) => setProductionForm({ ...productionForm, start: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={smallLabel}>End station</div>
+                    <input
+                      style={inputStyle}
+                      value={productionForm.end}
+                      onChange={(e) => setProductionForm({ ...productionForm, end: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={smallLabel}>Footage (auto)</div>
+                    <input
+                      style={{ ...inputStyle, background: "#f8fafc", color: "#475569" }}
+                      value={productionPreviewFootage ?? 0}
+                      readOnly
+                    />
+                  </div>
                 </>
               ) : (
-                <div><div style={smallLabel}>Footage</div><input style={inputStyle} value={productionForm.footage ?? 0} onChange={(e) => setProductionForm({ ...productionForm, footage: e.target.value })} placeholder="Enter direct footage" /></div>
+                <div>
+                  <div style={smallLabel}>Footage</div>
+                  <input
+                    style={inputStyle}
+                    value={productionForm.footage ?? 0}
+                    onChange={(e) =>
+                      setProductionForm({ ...productionForm, footage: e.target.value })
+                    }
+                    placeholder="Enter direct footage"
+                  />
+                </div>
               )}
 
-              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Reference</div><input style={inputStyle} value={productionForm.reference} onChange={(e) => setProductionForm({ ...productionForm, reference: e.target.value })} /></div>
-              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Comments</div><textarea style={{ ...inputStyle, minHeight: 90 }} value={productionForm.comments} onChange={(e) => setProductionForm({ ...productionForm, comments: e.target.value })} /></div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={smallLabel}>Reference</div>
+                <input
+                  style={inputStyle}
+                  value={productionForm.reference}
+                  onChange={(e) =>
+                    setProductionForm({ ...productionForm, reference: e.target.value })
+                  }
+                />
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={smallLabel}>Comments</div>
+                <textarea
+                  style={{ ...inputStyle, minHeight: 90 }}
+                  value={productionForm.comments}
+                  onChange={(e) =>
+                    setProductionForm({ ...productionForm, comments: e.target.value })
+                  }
+                />
+              </div>
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
-              <button style={primaryBtn} onClick={handleSaveProduction}>{editingRecordId ? "Update Section" : "Save Section"}</button>
-              <button style={lightBtn} onClick={() => { setProductionForm(emptyProductionForm); setEditingRecordId(null); }}>Clear</button>
+              <button style={primaryBtn} onClick={handleSaveProduction}>
+                {editingRecordId ? "Update Section" : "Save Section"}
+              </button>
+              <button
+                style={lightBtn}
+                onClick={() => {
+                  setProductionForm(emptyProductionForm);
+                  setEditingRecordId(null);
+                }}
+              >
+                Clear
+              </button>
             </div>
           </div>
 
           <div style={sectionCard}>
             <div style={smallLabel}>Filter production by crew</div>
             <div style={filterWrap}>
-              <button type="button" style={!selectedCrews.length ? selectedFilterChip : filterChip} onClick={() => setSelectedCrews([])}>All crews</button>
+              <button
+                type="button"
+                style={!selectedCrews.length ? selectedFilterChip : filterChip}
+                onClick={() => setSelectedCrews([])}
+              >
+                All crews
+              </button>
+
               {crewOptions.map((crew) => (
-                <button key={crew} type="button" style={selectedCrews.includes(crew) ? selectedFilterChip : filterChip} onClick={() => toggleCrewFilter(crew)}>
+                <button
+                  key={crew}
+                  type="button"
+                  style={selectedCrews.includes(crew) ? selectedFilterChip : filterChip}
+                  onClick={() => toggleCrewFilter(crew)}
+                >
                   {crew}
                 </button>
               ))}
@@ -1058,98 +1318,331 @@ const newProject = () => {
               </div>
 
               {filteredRecords.map((record) => (
-                <div key={record.id} onClick={() => setSelectedRecordId(record.id)} style={{ ...tableRowOld, background: selectedRecordId === record.id ? "#f8fafc" : "#fff", cursor: "pointer" }}>
+                <div
+                  key={record.id}
+                  onClick={() => setSelectedRecordId(record.id)}
+                  style={{
+                    ...tableRowOld,
+                    background: selectedRecordId === record.id ? "#f8fafc" : "#fff",
+                    cursor: "pointer",
+                  }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(record.crew), display: "inline-block" }} />
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: getCrewColor(record.crew),
+                        display: "inline-block",
+                      }}
+                    />
                     {record.crew}
                   </div>
-                  <div>{displayProject.trackingType === "Station based" ? `${record.start} to ${record.end}` : (record.reference || "—")}</div>
+
+                  <div>
+                    {displayProject.trackingType === "Station based"
+                      ? `${record.start} to ${record.end}`
+                      : (record.reference || "—")}
+                  </div>
+
                   <div>{record.date}</div>
                   <div>{record.footage}</div>
+
                   <div>
                     {record.attachments?.length ? (
                       <div style={{ display: "grid", gap: 6 }}>
                         {record.attachments.map((file, index) => (
                           <div key={index} style={{ fontSize: 12, lineHeight: 1.35 }}>
                             <div style={{ color: "#334155" }}>{file.name}</div>
-                            <a href={file.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: "#2563eb", textDecoration: "none" }}>Open</a>
+                            <a
+                              href={file.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ color: "#2563eb", textDecoration: "none" }}
+                            >
+                              Open
+                            </a>
                           </div>
                         ))}
                       </div>
-                    ) : <div style={{ fontSize: 12, color: "#6b7280" }}>No files</div>}
+                    ) : (
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>No files</div>
+                    )}
 
                     <label style={{ ...uploadButton, marginTop: 8 }}>
                       Attach bore log
-                      <input type="file" multiple style={{ display: "none" }} onChange={(e) => { e.stopPropagation(); handleUploadFile(record.id, e.target.files); }} />
+                      <input
+                        type="file"
+                        multiple
+                        style={{ display: "none" }}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleUploadFile(record.id, e.target.files);
+                        }}
+                      />
                     </label>
                   </div>
+
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleEditProduction(record); }}>Edit</button>
-                    <button style={tableButton} onClick={(e) => { e.stopPropagation(); handleDeleteProduction(record.id); }}>Delete</button>
+                    <button
+                      style={tableButton}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditProduction(record);
+                      }}
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      style={tableButton}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteProduction(record.id);
+                      }}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               ))}
 
-              {!filteredRecords.length && <div style={{ padding: 18, color: "#64748b" }}>No production saved yet for this filter.</div>}
+              {!filteredRecords.length && (
+                <div style={{ padding: 18, color: "#64748b" }}>
+                  No production saved yet for this filter.
+                </div>
+              )}
             </div>
 
-            <h2 style={{ marginTop: 28, textAlign: "left", marginBottom: 6 }}>811 Ticket Control</h2>
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 14 }}>Track ticket readiness, coverage, pending utilities, and what area each ticket covers for supervisor visibility.</div>
+            <h2 style={{ marginTop: 28, textAlign: "left", marginBottom: 6 }}>
+              811 Ticket Control
+            </h2>
+            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 14 }}>
+              Track ticket readiness, coverage, pending utilities, and what area each ticket covers for supervisor visibility.
+            </div>
 
             <div style={formGrid2}>
-              <div><div style={smallLabel}>Area / Section</div><input style={inputStyle} value={ticketForm.areaSection} onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })} placeholder="Area 5, North block, Section B, etc." /></div>
-              <div><div style={smallLabel}>Ticket number</div><input style={inputStyle} value={ticketForm.ticketNumber} onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })} placeholder="Sunshine 811 ticket number" /></div>
-              <div><div style={smallLabel}>Status</div><select style={inputStyle} value={ticketForm.status} onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}><option>Open</option><option>Pending</option><option>Clear</option><option>Expired</option></select></div>
-              <div><div style={smallLabel}>Pending utility</div><input style={inputStyle} value={ticketForm.pendingUtility} onChange={(e) => setTicketForm({ ...ticketForm, pendingUtility: e.target.value })} placeholder="FPL, Water, Gas, Comcast, etc." /></div>
-              <div><div style={smallLabel}>Expiration date</div><input type="date" style={inputStyle} value={ticketForm.expirationDate} onChange={(e) => setTicketForm({ ...ticketForm, expirationDate: e.target.value })} /></div>
-              <div><div style={smallLabel}>Days left</div><input style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }} value={getDaysLeft(ticketForm.expirationDate).text} readOnly /></div>
-              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Coverage / Description</div><input style={inputStyle} value={ticketForm.coverage} onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })} placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc." /></div>
-              <div style={{ gridColumn: "1 / -1" }}><div style={smallLabel}>Notes</div><textarea style={{ ...inputStyle, minHeight: 100 }} value={ticketForm.notes} onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })} placeholder="Anything your supervisor should know about this ticket" /></div>
+              <div>
+                <div style={smallLabel}>Area / Section</div>
+                <input
+                  style={inputStyle}
+                  value={ticketForm.areaSection}
+                  onChange={(e) => setTicketForm({ ...ticketForm, areaSection: e.target.value })}
+                  placeholder="Area 5, North block, Section B, etc."
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Ticket number</div>
+                <input
+                  style={inputStyle}
+                  value={ticketForm.ticketNumber}
+                  onChange={(e) => setTicketForm({ ...ticketForm, ticketNumber: e.target.value })}
+                  placeholder="Sunshine 811 ticket number"
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Status</div>
+                <select
+                  style={inputStyle}
+                  value={ticketForm.status}
+                  onChange={(e) => setTicketForm({ ...ticketForm, status: e.target.value })}
+                >
+                  <option>Open</option>
+                  <option>Pending</option>
+                  <option>Clear</option>
+                  <option>Expired</option>
+                </select>
+              </div>
+
+              <div>
+                <div style={smallLabel}>Pending utility</div>
+                <input
+                  style={inputStyle}
+                  value={ticketForm.pendingUtility}
+                  onChange={(e) =>
+                    setTicketForm({ ...ticketForm, pendingUtility: e.target.value })
+                  }
+                  placeholder="FPL, Water, Gas, Comcast, etc."
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Expiration date</div>
+                <input
+                  type="date"
+                  style={inputStyle}
+                  value={ticketForm.expirationDate}
+                  onChange={(e) =>
+                    setTicketForm({ ...ticketForm, expirationDate: e.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <div style={smallLabel}>Days left</div>
+                <input
+                  style={{ ...inputStyle, color: getDaysLeft(ticketForm.expirationDate).color }}
+                  value={getDaysLeft(ticketForm.expirationDate).text}
+                  readOnly
+                />
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={smallLabel}>Coverage / Description</div>
+                <input
+                  style={inputStyle}
+                  value={ticketForm.coverage}
+                  onChange={(e) => setTicketForm({ ...ticketForm, coverage: e.target.value })}
+                  placeholder="Street 1 to Street 2, intersection A/B to C/D, houses 101 to 145, etc."
+                />
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={smallLabel}>Notes</div>
+                <textarea
+                  style={{ ...inputStyle, minHeight: 100 }}
+                  value={ticketForm.notes}
+                  onChange={(e) => setTicketForm({ ...ticketForm, notes: e.target.value })}
+                  placeholder="Anything your supervisor should know about this ticket"
+                />
+              </div>
             </div>
 
             <div style={{ ...actionRow, marginTop: 14 }}>
-              <button style={primaryBtn} onClick={saveTicket}>{editingTicketId ? "Update Ticket" : "Save Ticket"}</button>
-              <button style={lightBtn} onClick={() => { setTicketForm(emptyTicketForm); setEditingTicketId(null); }}>Clear Ticket Form</button>
+              <button style={primaryBtn} onClick={saveTicket}>
+                {editingTicketId ? "Update Ticket" : "Save Ticket"}
+              </button>
+              <button
+                style={lightBtn}
+                onClick={() => {
+                  setTicketForm(emptyTicketForm);
+                  setEditingTicketId(null);
+                }}
+              >
+                Clear Ticket Form
+              </button>
             </div>
 
             <h2 style={{ marginTop: 24, marginBottom: 8 }}>Saved Tickets</h2>
             <div style={tableCard}>
-              <div style={tableHeaderTickets}><div>Area</div><div>Ticket</div><div>Status</div><div>Pending utility</div><div>Expiration</div><div>Days left</div><div>Coverage</div><div>Actions</div></div>
+              <div style={tableHeaderTickets}>
+                <div>Area</div>
+                <div>Ticket</div>
+                <div>Status</div>
+                <div>Pending utility</div>
+                <div>Expiration</div>
+                <div>Days left</div>
+                <div>Coverage</div>
+                <div>Actions</div>
+              </div>
+
               {projectTickets.map((ticket) => {
                 const daysLeft = getDaysLeft(ticket.expirationDate);
                 const ticketStatus = getTicketStatusStyle(ticket.status);
+
                 return (
                   <div key={ticket.id} style={tableRowTickets}>
                     <div>{ticket.areaSection || "—"}</div>
                     <div>{ticket.ticketNumber || "—"}</div>
-                    <div><span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>{ticket.status}</span></div>
+                    <div>
+                      <span
+                        style={{
+                          ...statusChip,
+                          background: ticketStatus.background,
+                          color: ticketStatus.color,
+                        }}
+                      >
+                        {ticket.status}
+                      </span>
+                    </div>
                     <div>{ticket.pendingUtility || "—"}</div>
                     <div>{ticket.expirationDate || "—"}</div>
                     <div style={{ color: daysLeft.color }}>{daysLeft.text}</div>
                     <div>{ticket.coverage || "—"}</div>
-                    <div style={{ display: "flex", gap: 8 }}><button style={tableButton} onClick={() => editTicket(ticket)}>Edit</button><button style={tableButton} onClick={() => deleteTicket(ticket.id)}>Delete</button></div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={tableButton} onClick={() => editTicket(ticket)}>Edit</button>
+                      <button style={tableButton} onClick={() => deleteTicket(ticket.id)}>Delete</button>
+                    </div>
                   </div>
                 );
               })}
-              {!projectTickets.length && <div style={{ padding: 18, color: "#64748b" }}>No tickets saved yet for this project.</div>}
+
+              {!projectTickets.length && (
+                <div style={{ padding: 18, color: "#64748b" }}>
+                  No tickets saved yet for this project.
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         <div style={reviewPanel}>
-          <div style={reviewHeaderCard}><h2 style={{ marginTop: 0, marginBottom: 0 }}>Project Review</h2></div>
+          <div style={reviewHeaderCard}>
+            <h2 style={{ marginTop: 0, marginBottom: 0 }}>Project Review</h2>
+          </div>
+
           <div style={reviewCard}>
             <div style={reviewTitle}>Project Overview</div>
-            <div style={reviewSection}><div style={bigLabel}>Project status</div><span style={statusBadge}>{displayProject?.status || "Active"}</span></div>
-            <div style={reviewSection}><div style={bigLabel}>Project comment</div><div style={smallCommentText}>{displayProject?.comment || "No project comment added."}</div></div>
+
             <div style={reviewSection}>
-              <div style={{ fontWeight: 700, fontSize: 28 }}>{selectedRecord?.crew || "No crew selected"}</div>
-              <div>{selectedRecord ? displayProject?.trackingType === "Station based" ? `${selectedRecord.start} to ${selectedRecord.end}` : `${selectedRecord.footage} ft recorded` : "No production selected yet."}</div>
+              <div style={bigLabel}>Project status</div>
+              <span style={statusBadge}>{displayProject?.status || "Active"}</span>
+            </div>
+
+            <div style={reviewSection}>
+              <div style={bigLabel}>Project comment</div>
+              <div style={smallCommentText}>
+                {displayProject?.comment || "No project comment added."}
+              </div>
+            </div>
+
+            <div style={reviewSection}>
+              <div style={{ fontWeight: 700, fontSize: 28 }}>
+                {selectedRecord?.crew || "No crew selected"}
+              </div>
+              <div>
+                {selectedRecord
+                  ? displayProject?.trackingType === "Station based"
+                    ? `${selectedRecord.start} to ${selectedRecord.end}`
+                    : `${selectedRecord.footage} ft recorded`
+                  : "No production selected yet."}
+              </div>
               <div>{selectedRecord?.date || ""}</div>
               <div>{selectedRecord ? `${selectedRecord.footage} ft` : ""}</div>
             </div>
-            <div style={reviewSection}><div style={bigLabel}>Reference</div><div style={smallCommentText}>{selectedRecord?.reference || "No reference added."}</div></div>
-            <div style={reviewSection}><div style={bigLabel}>Comments</div><div style={smallCommentText}>{selectedRecord?.comments || "No comments added."}</div></div>
+
+            <div style={reviewSection}>
+              <div style={bigLabel}>Pipe size</div>
+              <div style={smallCommentText}>
+                {displayProject?.pipeSize || "No pipe size added."}
+              </div>
+            </div>
+
+            <div style={reviewSection}>
+              <div style={bigLabel}>Drill direction</div>
+              <div style={smallCommentText}>
+                {displayProject?.drillDirection || "No drill direction added."}
+              </div>
+            </div>
+
+            <div style={reviewSection}>
+              <div style={bigLabel}>Reference</div>
+              <div style={smallCommentText}>
+                {selectedRecord?.reference || "No reference added."}
+              </div>
+            </div>
+
+            <div style={reviewSection}>
+              <div style={bigLabel}>Comments</div>
+              <div style={smallCommentText}>
+                {selectedRecord?.comments || "No comments added."}
+              </div>
+            </div>
+
             <div style={reviewSection}>
               <div style={bigLabel}>Attachments</div>
               {selectedRecord?.attachments?.length ? (
@@ -1157,11 +1650,20 @@ const newProject = () => {
                   {selectedRecord.attachments.map((file, index) => (
                     <div key={index} style={{ fontSize: 13 }}>
                       <div style={{ color: "#334155" }}>{file.name}</div>
-                      <a href={file.url} target="_blank" rel="noreferrer" style={{ color: "#2563eb", textDecoration: "none" }}>Open file</a>
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        Open file
+                      </a>
                     </div>
                   ))}
                 </div>
-              ) : <div style={smallCommentText}>No attachments.</div>}
+              ) : (
+                <div style={smallCommentText}>No attachments.</div>
+              )}
             </div>
           </div>
 
@@ -1170,7 +1672,15 @@ const newProject = () => {
             {Object.entries(crewSummary).map(([crew, feet]) => (
               <div key={crew} style={summaryRow}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(crew), display: "inline-block" }} />
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: getCrewColor(crew),
+                      display: "inline-block",
+                    }}
+                  />
                   <strong>{crew}</strong>
                 </div>
                 <span>{feet} ft</span>
@@ -1180,37 +1690,72 @@ const newProject = () => {
 
           <div style={reviewCard}>
             <div style={reviewTitle}>Saved crews in this project</div>
-            {crewOptions.length ? crewOptions.map((crew) => (
-              <div key={crew} style={summaryRow}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 999, background: getCrewColor(crew), display: "inline-block" }} />
-                  <strong>{crew}</strong>
+            {crewOptions.length ? (
+              crewOptions.map((crew) => (
+                <div key={crew} style={summaryRow}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: getCrewColor(crew),
+                        display: "inline-block",
+                      }}
+                    />
+                    <strong>{crew}</strong>
+                  </div>
                 </div>
-              </div>
-            )) : <div>No crews saved yet.</div>}
+              ))
+            ) : (
+              <div>No crews saved yet.</div>
+            )}
           </div>
 
           {displayProject?.trackingType === "Station based" && (
             <div style={reviewCard}>
               <div style={reviewTitle}>Open Gaps</div>
-              {gaps.length ? gaps.map((gap, index) => (
-                <div key={index} style={gapRow}><strong>{formatStation(gap.start)} to {formatStation(gap.end)}</strong><div>{gap.end - gap.start} ft unfinished</div></div>
-              )) : <div>No gaps found.</div>}
+              {gaps.length ? (
+                gaps.map((gap, index) => (
+                  <div key={index} style={gapRow}>
+                    <strong>
+                      {formatStation(gap.start)} to {formatStation(gap.end)}
+                    </strong>
+                    <div>{gap.end - gap.start} ft unfinished</div>
+                  </div>
+                ))
+              ) : (
+                <div>No gaps found.</div>
+              )}
             </div>
           )}
 
           <div style={reviewCard}>
             <div style={reviewTitle}>Ticket Readiness</div>
-            {projectTickets.length ? projectTickets.map((ticket) => {
-              const ticketStatus = getTicketStatusStyle(ticket.status);
-              return (
-                <div key={ticket.id} style={gapRow}>
-                  <strong>{ticket.ticketNumber || "No ticket number"}</strong>
-                  <div>{ticket.areaSection || "No area / section"}</div>
-                  <div><span style={{ ...statusChip, background: ticketStatus.background, color: ticketStatus.color }}>{ticket.status}</span></div>
-                </div>
-              );
-            }) : <div>No ticket records yet.</div>}
+            {projectTickets.length ? (
+              projectTickets.map((ticket) => {
+                const ticketStatus = getTicketStatusStyle(ticket.status);
+                return (
+                  <div key={ticket.id} style={gapRow}>
+                    <strong>{ticket.ticketNumber || "No ticket number"}</strong>
+                    <div>{ticket.areaSection || "No area / section"}</div>
+                    <div>
+                      <span
+                        style={{
+                          ...statusChip,
+                          background: ticketStatus.background,
+                          color: ticketStatus.color,
+                        }}
+                      >
+                        {ticket.status}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div>No ticket records yet.</div>
+            )}
           </div>
         </div>
       </div>
@@ -1218,49 +1763,355 @@ const newProject = () => {
   );
 }
 
-const pageStyle = { minHeight: "100vh", background: "#f8fafc", color: "#111827", padding: 20, fontFamily: "Arial, sans-serif" };
-const layoutGrid = { display: "grid", gridTemplateColumns: "1.8fr 1fr", gap: 20, alignItems: "start" };
-const mainBottom = { display: "grid", gap: 20 };
-const headerCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 24 };
-const sectionCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 24 };
-const reviewPanel = { display: "grid", gap: 16, position: "sticky", top: 20 };
-const reviewHeaderCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 18 };
-const reviewCard = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 18, padding: 18 };
-const reviewTitle = { fontWeight: 700, fontSize: 16, marginBottom: 10 };
-const reviewSection = { padding: "12px 0", borderTop: "1px solid #e5e7eb" };
-const actionRow = { display: "flex", gap: 10, flexWrap: "wrap" };
-const formGrid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 };
-const metaPillRow = { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 };
-const metaPill = { display: "inline-block", padding: "7px 10px", borderRadius: 999, background: "#eef2ff", fontSize: 13 };
-const statusBadge = { display: "inline-block", padding: "5px 10px", borderRadius: 999, background: "#eef2ff", fontSize: 11, fontWeight: 600 };
-const statusChip = { display: "inline-block", padding: "3px 8px", borderRadius: 999, background: "#dcfce7", color: "#166534", fontSize: 12, fontWeight: 700 };
-const statsRow = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginTop: 18 };
-const statBox = { border: "1px solid #e5e7eb", borderRadius: 16, padding: 18, background: "#fff" };
-const statLabel = { fontSize: 13, color: "#6b7280" };
-const statValue = { fontSize: 20, fontWeight: 700, marginTop: 6 };
-const statusNoteBox = { marginTop: 16, border: "1px solid #e5e7eb", borderRadius: 16, padding: 14, background: "#fff" };
-const helperNote = { marginTop: 10, fontSize: 13, color: "#475569" };
-const lineLabelRow = { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 8 };
-const lineTrack = { position: "relative", height: 34, borderRadius: 999, background: "#dbe4ef", overflow: "hidden" };
-const legendRow = { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 };
-const legendPill = { display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 13 };
-const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid #cbd5e1", fontSize: 14, boxSizing: "border-box", background: "#fff" };
-const darkBtn = { background: "#111827", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
-const primaryBtn = { background: "#22c55e", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
-const lightBtn = { background: "#f3f4f6", color: "#111827", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
-const dangerBtn = { background: "#dc2626", color: "#fff", border: "none", borderRadius: 12, padding: "10px 14px", fontWeight: 700, cursor: "pointer" };
-const uploadButton = { display: "inline-block", background: "#fff", border: "1px solid #d1d5db", borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontSize: 12, textAlign: "center" };
-const smallLabel = { fontSize: 13, fontWeight: 700, marginBottom: 6 };
-const bigLabel = { fontSize: 16, fontWeight: 700, marginBottom: 8 };
-const smallCommentText = { fontSize: 13, color: "#4b5563", lineHeight: 1.45 };
-const summaryRow = { display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderTop: "1px solid #e5e7eb" };
-const gapRow = { borderTop: "1px solid #e5e7eb", paddingTop: 10, marginTop: 10 };
-const tableCard = { marginTop: 10, border: "1px solid #e5e7eb", borderRadius: 16, overflow: "hidden" };
-const tableHeaderOld = { display: "grid", gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr", gap: 12, padding: 14, background: "#f8fafc", fontWeight: 700, fontSize: 13 };
-const tableRowOld = { display: "grid", gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr", gap: 12, padding: 14, borderTop: "1px solid #e5e7eb", alignItems: "center" };
-const tableHeaderTickets = { display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr", gap: 12, padding: 14, background: "#f8fafc", fontWeight: 700, fontSize: 13 };
-const tableRowTickets = { display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr", gap: 12, padding: 14, borderTop: "1px solid #e5e7eb", alignItems: "center" };
-const tableButton = { background: "#f3f4f6", border: "none", borderRadius: 10, padding: "8px 10px", cursor: "pointer" };
-const filterWrap = { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 };
-const filterChip = { padding: "8px 12px", borderRadius: 999, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer", fontSize: 13 };
-const selectedFilterChip = { ...filterChip, background: "#e0f2fe", border: "1px solid #7dd3fc" };
+const pageStyle = {
+  minHeight: "100vh",
+  background: "#f8fafc",
+  color: "#111827",
+  padding: 20,
+  fontFamily: "Arial, sans-serif",
+};
+
+const layoutGrid = {
+  display: "grid",
+  gridTemplateColumns: "1.8fr 1fr",
+  gap: 20,
+  alignItems: "start",
+};
+
+const mainBottom = {
+  display: "grid",
+  gap: 20,
+};
+
+const headerCard = {
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 18,
+  padding: 24,
+};
+
+const sectionCard = {
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 18,
+  padding: 24,
+};
+
+const reviewPanel = {
+  display: "grid",
+  gap: 16,
+  position: "sticky",
+  top: 20,
+};
+
+const reviewHeaderCard = {
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 18,
+  padding: 18,
+};
+
+const reviewCard = {
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 18,
+  padding: 18,
+};
+
+const reviewTitle = {
+  fontWeight: 700,
+  fontSize: 16,
+  marginBottom: 10,
+};
+
+const reviewSection = {
+  padding: "12px 0",
+  borderTop: "1px solid #e5e7eb",
+};
+
+const actionRow = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const formGrid2 = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 14,
+};
+
+const metaPillRow = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 16,
+};
+
+const metaPill = {
+  display: "inline-block",
+  padding: "7px 10px",
+  borderRadius: 999,
+  background: "#eef2ff",
+  fontSize: 13,
+};
+
+const statusBadge = {
+  display: "inline-block",
+  padding: "5px 10px",
+  borderRadius: 999,
+  background: "#eef2ff",
+  fontSize: 11,
+  fontWeight: 600,
+};
+
+const statusChip = {
+  display: "inline-block",
+  padding: "3px 8px",
+  borderRadius: 999,
+  background: "#dcfce7",
+  color: "#166534",
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const statsRow = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, 1fr)",
+  gap: 14,
+  marginTop: 18,
+};
+
+const statBox = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
+  padding: 18,
+  background: "#fff",
+};
+
+const statLabel = {
+  fontSize: 13,
+  color: "#6b7280",
+};
+
+const statValue = {
+  fontSize: 20,
+  fontWeight: 700,
+  marginTop: 6,
+};
+
+const statusNoteBox = {
+  marginTop: 16,
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
+  padding: 14,
+  background: "#fff",
+};
+
+const helperNote = {
+  marginTop: 10,
+  fontSize: 13,
+  color: "#475569",
+};
+
+const lineLabelRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  fontSize: 13,
+  color: "#6b7280",
+  marginBottom: 8,
+};
+
+const lineTrack = {
+  position: "relative",
+  height: 34,
+  borderRadius: 999,
+  background: "#dbe4ef",
+  overflow: "hidden",
+};
+
+const legendRow = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 12,
+};
+
+const legendPill = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "6px 10px",
+  borderRadius: 999,
+  border: "1px solid #e5e7eb",
+  background: "#fff",
+  fontSize: 13,
+};
+
+const inputStyle = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "1px solid #cbd5e1",
+  fontSize: 14,
+  boxSizing: "border-box",
+  background: "#fff",
+};
+
+const darkBtn = {
+  background: "#111827",
+  color: "#fff",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const primaryBtn = {
+  background: "#22c55e",
+  color: "#fff",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const lightBtn = {
+  background: "#f3f4f6",
+  color: "#111827",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const dangerBtn = {
+  background: "#dc2626",
+  color: "#fff",
+  border: "none",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const uploadButton = {
+  display: "inline-block",
+  background: "#fff",
+  border: "1px solid #d1d5db",
+  borderRadius: 10,
+  padding: "8px 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  textAlign: "center",
+};
+
+const smallLabel = {
+  fontSize: 13,
+  fontWeight: 700,
+  marginBottom: 6,
+};
+
+const bigLabel = {
+  fontSize: 16,
+  fontWeight: 700,
+  marginBottom: 8,
+};
+
+const smallCommentText = {
+  fontSize: 13,
+  color: "#4b5563",
+  lineHeight: 1.45,
+};
+
+const summaryRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  padding: "8px 0",
+  borderTop: "1px solid #e5e7eb",
+};
+
+const gapRow = {
+  borderTop: "1px solid #e5e7eb",
+  paddingTop: 10,
+  marginTop: 10,
+};
+
+const tableCard = {
+  marginTop: 10,
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
+  overflow: "hidden",
+};
+
+const tableHeaderOld = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr",
+  gap: 12,
+  padding: 14,
+  background: "#f8fafc",
+  fontWeight: 700,
+  fontSize: 13,
+};
+
+const tableRowOld = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1.4fr 1fr 0.8fr 1.4fr 1fr",
+  gap: 12,
+  padding: 14,
+  borderTop: "1px solid #e5e7eb",
+  alignItems: "center",
+};
+
+const tableHeaderTickets = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr",
+  gap: 12,
+  padding: 14,
+  background: "#f8fafc",
+  fontWeight: 700,
+  fontSize: 13,
+};
+
+const tableRowTickets = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 0.9fr 1fr 1fr 1fr 1.2fr 1fr",
+  gap: 12,
+  padding: 14,
+  borderTop: "1px solid #e5e7eb",
+  alignItems: "center",
+};
+
+const tableButton = {
+  background: "#f3f4f6",
+  border: "none",
+  borderRadius: 10,
+  padding: "8px 10px",
+  cursor: "pointer",
+};
+
+const filterWrap = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 10,
+};
+
+const filterChip = {
+  padding: "8px 12px",
+  borderRadius: 999,
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: 13,
+};
+
+const selectedFilterChip = {
+  ...filterChip,
+  background: "#e0f2fe",
+  border: "1px solid #7dd3fc",
+};
