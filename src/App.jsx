@@ -6,6 +6,9 @@ const crewColors = {
   NALDI: "#ef4444",
   YOYI: "#f59e0b",
   FRANK: "#22c55e",
+  MANUEL: "#3b82f6",
+  DENIS: "#a855f7",
+  FABIO: "#14b8a6",
   DEFAULT: "#94a3b8",
 };
 
